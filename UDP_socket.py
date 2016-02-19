@@ -32,7 +32,7 @@ class UDP_socket:
 	# corruption_threshold : int
 	# The chance from 0 - 100 that a packet, if not entirely lost, will be sent with errors
 	# Higher values mean a higher chance for corruption
-	def __init__(self, ip_address, port, loss_threshold = 10, corruption_threshold = 10):
+	def __init__(self, ip_address, port, loss_threshold = 0, corruption_threshold = 0):
 
 		# Save the socket info
 		self.ip_address = ip_address
@@ -51,7 +51,12 @@ class UDP_socket:
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 		# Bind the socket
-		self.sock.bind((UDP_IP, UDP_PORT))
+		self.sock.bind((ip_address, port))
+
+	# Releases the socket once this class is destroyed
+	def __del__(self):
+
+		self.sock.close()
 
 	# Sends a message. Affected by current garbling parameters
 	#
@@ -60,7 +65,7 @@ class UDP_socket:
 	#
 	# send_info : (destination_ip, destination_port)
 	# The ip and port to send to
-	def send_garbled(message, send_info):
+	def send_garbled(self, message, send_info):
 
 		# Use the garble parameters to determine the fate of the message
 
@@ -70,7 +75,7 @@ class UDP_socket:
 			return
 
 		# Corruption, failure means that the message will be randomly altered
-		if random.randint() < self.current_corruption_threshold:
+		if random.randint(1, 100) < self.current_corruption_threshold:
 
 			message = ''.join(i if random.randint(0, 1) else random.choice(string.letters) for i in message)
 
@@ -92,7 +97,7 @@ class UDP_socket:
 	# SAME : current value will not be changed
 	# DEFAULT : value set during class initialization will be used
 	# NEVER : 0, no loss or corruption
-	def set_garble_parameters(loss_threshold = "SAME", corruption_threshold = "SAME"):
+	def set_garble_parameters(self, loss_threshold = "SAME", corruption_threshold = "SAME"):
 
 		# Set based on any strings
 		if isinstance(loss_threshold, basestring):
@@ -141,15 +146,15 @@ class UDP_socket:
 			set_corruption_threshold_to = corruption_threshold
 
 		# Check to make sure that both values are valid
-		if not (0 >= set_loss_threshold_to >= 100):
+		if not (0 <= set_loss_threshold_to <= 100):
 		# Not valid
 
-			raise ValueError("Loss threshold invalid")
+			raise ValueError("Loss threshold invalid: " + str(set_loss_threshold_to))
 
-		if not (0 >= set_corruption_threshold_to >= 100):
+		if not (0 <= set_corruption_threshold_to <= 100):
 		# Not valid
 
-			raise ValueError("Corruption threshold invalid")
+			raise ValueError("Corruption threshold invalid: " + str(set_corruption_threshold_to))
 
 		# Set the garbling values
 		self.current_loss_threshold = set_loss_threshold_to
