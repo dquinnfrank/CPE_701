@@ -73,15 +73,24 @@ class UDP_socket:
 		# Loss, failure means no sending
 		if random.randint(1, 100) < self.current_loss_threshold:
 
+			logging.info("Packet loss sending to: " + str(send_info))
+			logging.debug("Message contents: " + message)
+
 			return
 
 		# Corruption, failure means that the message will be randomly altered
 		if random.randint(1, 100) < self.current_corruption_threshold:
 
+			logging.info("Packet corruption sending to: " + str(send_info))
+			logging.debug("Message contents: " + message)
+
 			message = ''.join(i if random.randint(0, 1) else random.choice(string.letters) for i in message)
 
 		# Send the message
 		self.sock.sendto(message, send_info)
+
+		logging.info("Packet sent to: " + str(send_info))
+		logging.debug("Message contents: " + message)
 
 	# Sets the garbling parameters of this socket
 	# Throws execptions for invalid input
@@ -160,3 +169,5 @@ class UDP_socket:
 		# Set the garbling values
 		self.current_loss_threshold = set_loss_threshold_to
 		self.current_corruption_threshold = set_corruption_threshold_to
+
+		logging.warning("Garble parameters set to: loss: " + str(self.current_loss_threshold) + " corruption: " + str(self.current_corruption_threshold))

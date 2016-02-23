@@ -2,7 +2,10 @@
 
 import socket
 import sys
+import os
+import logging
 
+from general_utility import enforce_path
 from UDP_socket import UDP_socket
 
 # The IP or host name to use
@@ -86,6 +89,22 @@ def test(loss_threshold = 25, corruption_threshold = 25, number_to_send = 10000)
 
 # Run the test with several different parameters
 if __name__ == "__main__":
+
+	# No arguments means log to default file
+	if len(sys.argv) < 2:
+
+		log_to = "logs/default.log"
+
+	# Get the name of the log file output
+	else:
+
+		log_to = sys.argv[1]
+
+		# Can create one directory level if needed
+		make_dir, ignore = os.path.split(log_to)
+		enforce_path(make_dir)
+
+	logging.basicConfig(filename=log_to, level=logging.INFO)
 
 	print "Default values test"
 	test()
