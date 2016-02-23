@@ -104,7 +104,7 @@ if __name__ == "__main__":
 		make_dir, ignore = os.path.split(log_to)
 		enforce_path(make_dir)
 
-	logging.basicConfig(filename=log_to, level=logging.INFO)
+	logging.basicConfig(filename=log_to, filemode='w', level=logging.INFO)
 
 	print "Default values test"
 	test()

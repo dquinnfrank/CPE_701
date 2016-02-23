@@ -52,12 +52,16 @@ class UDP_socket:
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 		# Bind the socket
-		self.sock.bind((ip_address, port))
+		self.sock.bind((self.ip_address, self.port))
+
+		logging.warning("Bound socket to: " + str((self.ip_address, self.port)))
 
 	# Releases the socket once this class is destroyed
 	def __del__(self):
 
 		self.sock.close()
+
+		logging.warning("Closed socket: " + str((self.ip_address, self.port)))
 
 	# Sends a message. Affected by current garbling parameters
 	#
@@ -71,7 +75,7 @@ class UDP_socket:
 		# Use the garble parameters to determine the fate of the message
 
 		# Loss, failure means no sending
-		if random.randint(1, 100) < self.current_loss_threshold:
+		if random.randint(1, 100) <= self.current_loss_threshold:
 
 			logging.info("Packet loss sending to: " + str(send_info))
 			logging.debug("Message contents: " + message)
@@ -79,7 +83,7 @@ class UDP_socket:
 			return
 
 		# Corruption, failure means that the message will be randomly altered
-		if random.randint(1, 100) < self.current_corruption_threshold:
+		if random.randint(1, 100) <= self.current_corruption_threshold:
 
 			logging.info("Packet corruption sending to: " + str(send_info))
 			logging.debug("Message contents: " + message)

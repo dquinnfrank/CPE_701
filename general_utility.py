@@ -1,6 +1,7 @@
 # This contains general utility functions
 
 import os
+import errno
 
 # Enforces file path
 def enforce_path(path):
