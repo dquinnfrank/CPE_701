@@ -13,6 +13,7 @@ class UDP_socket:
 	# sock
 	# The socket that was created. Can be read from using select
 	# DO NOT SEND MESSAGES DIRECTLY THROUGH THIS
+	# use send_garbled instead
 
 	# Initializer
 	# Sets socket values and garbling parameters
