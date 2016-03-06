@@ -93,7 +93,7 @@ if __name__ == "__main__":
 	# No arguments means log to default file
 	if len(sys.argv) < 2:
 
-		log_to = "logs/default.log"
+		log_to = "logs/garble_test_default.log"
 
 	# Get the name of the log file output
 	else:

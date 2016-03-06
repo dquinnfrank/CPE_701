@@ -21,7 +21,7 @@ name_to_id = {
 
 # Maps the ids to the common names
 id_to_name = dict ( (v,k) for k, v in name_to_id.items() )
-
+"""
 # Uses md5 to return the hash value for the sent string
 def get_hash(sent):
 
@@ -47,7 +47,7 @@ def check_valid(packet):
 
 	# Return the comparision
 	return sent_hash == packet_hash
-
+"""
 # Creates a packet based on the option sent, defined above
 # Other arguments are specific to the type of packet being sent
 def make_packet(packet_type, type_args):
@@ -91,7 +91,7 @@ def make_ping(ping_msg):
 	#packet_content = str(ping_msg)
 
 	# Create the packet body
-	packet_body = delimiter.join([str(i) for i in [packet_id, ping_msg]])
+	#packet_body = delimiter.join([str(i) for i in [packet_id, ping_msg]])
 
 	# Hash the packet body
 	packet_hash = get_hash(packet_body)
@@ -106,13 +106,13 @@ def make_ping(ping_msg):
 def unpack(packet):
 
 	# Check for packet validity
-	if not check_valid(packet):
+	#if not check_valid(packet):
 
-		raise RuntimeError("Packet is corrupted")
+	#	raise RuntimeError("Packet is corrupted")
 
 	# Remove the hash from the packet and get the contents
 	return get_contents(packet[hash_size:])
-
+"""
 # Gets packet contents based on the type (type must be first token in the packet)
 def get_contents(packet_body):
 
@@ -136,3 +136,4 @@ def get_contents(packet_body):
 def unpack_ping(packet_contents):
 
 	return packet_contents
+"""
