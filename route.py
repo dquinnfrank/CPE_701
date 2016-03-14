@@ -50,10 +50,20 @@ class Route:
 		# node_id : (connection_id, cost)
 		self.unstable_route = copy.copy(self.node_id_to_next_hop)
 
+		# Holds the basic link info, used for reseting unstable_route
+		self.link_info = copy.copy(self.unstable_route)
+
+	# Gets the next hop for a packet given the final target node id
+	# Output is suitable for use with UDP_socket
+	def get_next_hop(self, target_id):
+
+		# Get the next hop for this target
+		next_hop_id = self.node_id_to_next_hop[int(target_id)]
+
 	# Adds a next hop link to this node
 	def add_connection(self, connection_id, connection_ip, connection_port, connection_mtu):
 
-		self.node_id_to_UDP[connection_id] = (connection_ip, connection_port, connection_mtu)
+		self.node_id_to_UDP[int(connection_id)] = (connection_ip, connection_port, connection_mtu)
 
 	# Calculates cost based on number of hops
 	# Basically just adds 1
@@ -97,7 +107,37 @@ class Route:
 					self.unstable_route[target_id] = (source_id, ad_cost)
 
 	# Makes the updated routing table into the new rounting table
+	# TODO: make this safer? Calling will wipe out the table if done at the wrong time
 	def stablize(self):
 
 		# Set the useable routing table to be the updated routing table
 		self.node_id_to_next_hop = copy.copy(self.unstable_route)
+
+		logging.info("Routing table updated: " + self.routing_table_string(" "))
+
+		# Reset the unstable routing table
+		self.unstable_route = copy.copy(self.link_info)
+
+	# Returns the current routing table as a string
+	# One entry is:
+	# Target--node_id--NextHop--next_hop--Cost--cost
+	# Multiple entries joined by sep
+	def routing_table_string(self, sep="\n"):
+
+		# Go through the current routing table and add each entry to the list
+		entry_list = []
+		for target_id in self.node_id_to_next_hop.keys():
+
+			# Get the info for this target
+			next_hop, cost = self.node_id_to_next_hop[target_id]
+
+			# Make the string
+			entry_string = "Target--" + target_id + "--NextHop--" + next_hop + "--Cost--" + str(cost)
+
+			# Add to list
+			entry_list.append(entry_string)
+
+		# Join all entries
+		routing_table_string = sep.join(entry_list)
+
+		return routing_table_string

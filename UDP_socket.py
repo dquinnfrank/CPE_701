@@ -96,6 +96,14 @@ class UDP_socket:
 		logging.info("Packet sent to: " + str(send_info))
 		logging.debug("Message contents: " + message)
 
+	# Sends a list of messages to the same address. Uses send_garbled
+	def send_all_garbled(self, message_list, send_info):
+
+		# Call send_garbled for each message
+		for message in message_list:
+
+			self.send_garbled(message, send_info)
+
 	# Sets the garbling parameters of this socket
 	# Throws execptions for invalid input
 	#

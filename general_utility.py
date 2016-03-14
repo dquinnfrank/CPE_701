@@ -6,9 +6,6 @@ import errno
 import hashlib
 import struct
 
-# Get the size of every hash
-hash_size = hashlib.md5().digest_size
-
 # The size of !L fields packed by struct
 field_size = struct.calcsize("!L")
 
