@@ -28,7 +28,8 @@ class DNP:
 		self.packet_counter = 0
 
 		# Holds fragmented messages
-		# packet_key : [last_timestamp, total_size, data_buffer, byte_offsets]
+		# packet_key : ledger_dic
+		# ledger_dic = [last_timestamp : last update time, total_size : expected packet size, data_buffer : list of current data chunks, byte_offsets : the corresponding offset of each chunk]
 		self.message_buffer = {}
 
 		# The link layer that will handle lower level communication
@@ -37,6 +38,7 @@ class DNP:
 	# Creates a best effort service packet
 	# Returns a list of strings with the packet header and content
 	# Each item in the list is a fragment of the packet, commonly there will only be one
+	# TODO: take out mtu and get it from the route layer
 	def pack(self, message, destination_id, destination_port, source_port, link_mtu, TTL = None):
 
 		# Holds all of the fragments to send
@@ -56,24 +58,48 @@ class DNP:
 		# If the message (and header) is larger than the mtu, it will need to be fragmented
 		# Fragmentation will continue as long as needed
 		message_remaining = message # Holds remaining message chunks
-		offset_counter = 0 # Tracks the chunk number
+		offset_counter = 0 # Tracks the byte offset
 		while len(message_remaining) > max_size:
 
 			# Take a chunk of the message off and make a packet out of it
 			message_chunk = message_remaining[:max_size]
 
-			# Pack and add to the message list
-			to_send = self.single_pack(message_chunk, destination_id, destination_port, source_port, TTL = TTL, offset = offset_counter, total_size = message_size)
-			message_fragments.append(to_send)
+			# Pack and add to the message list, will fail if TTL expires
+			try:
 
-			# Remove the packed message
-			message_remaining = message_remaining[max_size:]
+				to_send = self.single_pack(message_chunk, destination_id, destination_port, source_port, TTL = TTL, offset = offset_counter, total_size = message_size)
+
+			# TTL has expired, don't deal with it here for now
+			except RuntimeError:
+
+				# TODO: configure this to pass the error along if desired
+				raise
+
+			else:
+
+				message_fragments.append(to_send)
+
+				# Remove the packed message
+				message_remaining = message_remaining[max_size:]
+
+			# Set the byte offset by incrementing by the size of this fragment
+			offset_counter += len(message_chunk)
 
 		# Get the remainder of the message
 		if len(message_remaining) > 0:
 
-			to_send = self.single_pack(message_remaining, destination_id, destination_port, source_port, TTL = TTL, offset = offset_counter, total_size = message_size)
-			message_fragments.append(to_send)
+			# TTL catch
+			try:
+
+				to_send = self.single_pack(message_remaining, destination_id, destination_port, source_port, TTL = TTL, offset = offset_counter, total_size = message_size)
+
+			# TTL expired
+			except RuntimeError:
+
+				raise
+
+			else:
+				message_fragments.append(to_send)
 
 		# Incrment count
 		offset_counter += 1
@@ -81,7 +107,7 @@ class DNP:
 		return message_fragments
 
 	# Makes a single packet, size must be less than the mtu
-	def single_pack(self, message, destination_id, destination_port, source_port, TTL = None, offset = 0, total_size = None):
+	def single_pack(self, message, destination_id, destination_port, source_port, TTL = None, offset = 0, total_size = None, increment = False):
 
 		# If total is None, use the size of the message as the total
 		if total_size is None:
@@ -97,14 +123,61 @@ class DNP:
 		# Finish the packet by adding the link layer info
 		whole_packet = self.lower_layer.pack(DNP_partial_packet, TTL=TTL)
 
-		# Increment the overall packet counter to keep IDs unique
-		self.packet_counter += 1
+		# Increment the overall packet counter to keep IDs unique, if requested
+		if increment:
+			self.packet_counter += 1
 
 		return whole_packet
 
+	# Unpacks the given packet, return depends on the packet
+	#
+	# If the packet is not destined for this node, the packet will be forwarded and return will be None
+	#
+	# If this is a fragment, it will be placed in the buffer.
+	# If all fragments are collected, the packet info and body will be returned
+	# If there are more fragments, the return will be None
 	def unpack(self, packet):
 
-		pass
+		# Unpack the packet, might fail
+		try:
+
+			unpacked = self.single_unpack(packet)
+
+		# Just ignore corrupted packets
+		except RuntimeError:
+
+			return None
+
+		# More readable form of the packet contents
+		(TTL, dest_id, pkt_id, offset, total_size, dest_port, source_id, source_port, message) = unpacked
+
+		# If this packet is not destined for this node, forward it
+		if dest_id != self.node_id:
+
+			logging.info("Got packet for another destination: " + str(dest_id))
+
+			# TODO: get routing and forward packet
+
+			return None
+
+		# The common case is that the packet is not fragmented, immediately return
+		if len(message) == total_size:
+
+			return (dest_port, source_id, source_port, message)
+
+		# This is a fragment
+		else:
+
+			# Place into buffer
+			response = self.defragment(unpacked)
+
+			if response is not None:
+
+				return (dest_port, source_id, source_port, response)
+
+			else:
+
+				return None
 
 	# Unpacks a single DNP packet
 	# Returns all header info for this layer and TTL from the lower layer
@@ -135,6 +208,100 @@ class DNP:
 
 			# Return all info and the body
 			return TTL + DNP_header_info + (body,)
+
+	# Reassembles packet fragments
+	# returns None if packet is not complete
+	# returns the assembled message if complete
+	def defragment(self, packet):
+
+		# Get the readable form of the contents
+		(TTL, dest_id, pkt_id, offset, total_size, dest_port, source_id, source_port, message) = packet
+
+		# Get the key for this packet
+		packet_key = self.buffer_key(dest_port, source_id, source_port, pkt_id)
+
+		# Get the buffer if it is already in the ledger
+		try:
+
+			packet_buffer = self.message_buffer[packet_key]
+
+		# This is a new packet
+		except KeyError:
+
+			# Add to the buffer
+			packet_buffer = self.ledger_entry(packet)
+
+		# Update the buffer with the new packet chunk
+		self.ledger_update(packet_buffer, message, offset)
+
+		# Attempt to combine the packet
+		fused = self.ledger_combine(packet_buffer)
+
+		# If fused contains data, the entry can be removed from the ledger
+		if fused is not None:
+
+			del self.message_buffer[packet_key]
+
+		# Return the combined packet, will be None if not all fragements are present
+		return fused
+
+	# Attempts to combine the given packet buffer
+	# Returns None if not all fragments are present
+	# Returns all data if all fragments are present
+	def ledger_combine(self, packet_buffer):
+
+		# Combine all data
+		combined_data = "".join(packet_buffer["data_buffer"])
+
+		# Packet is complete if size of data is equal to the total_size
+		if len(combined_data) == packet_buffer["total_size"]:
+
+			# Send back all data
+			return combined_data
+
+		# Not complete
+		else:
+
+			return None
+
+	# Updates the given ledger entry with the sent data and offset
+	def ledger_update(self, packet_buffer, data, offset):
+
+		# TODO: fix duplicates and non aligned repeats?
+		# This might not even be an issue
+
+		# Set the new time stamp
+		packet_buffer["last_timestamp"] = time.time()
+
+		# Add the offset
+		packet_buffer["byte_offsets"].append(offset)
+
+		# Sort and get the position of the new entry in order to know where the data needs to go
+		packet_buffer["byte_offsets"].sort()
+		chunk_index = packet_buffer["byte_offsets"].index(offset)
+
+		# Insert the data into the correct location
+		packet_buffer["data_buffer"].insert(chunk_index, data)
+
+	# Creates an entry in the buffer ledger
+	def ledger_entry(self, packet):
+
+		# Get the readable form of the contents
+		(TTL, dest_id, pkt_id, offset, total_size, dest_port, source_id, source_port, message) = packet
+
+		# Get the key
+		packet_key = self.buffer_key(dest_port, source_id, source_port, pkt_id)
+
+		# Create the entry
+		self.message_buffer[packet_key] = {"last_timestamp" : time.time(), "total_size" : total_size, "data_buffer" : [], "byte_offsets" : []}
+
+		# Return for ease
+		return self.message_buffer[packet_key]
+
+	# Makes the key that indexes the buffer
+	def buffer_key(self, dest_port, source_id, source_port, pkt_id):
+
+		return " ".join([str (i) for i in [dest_port, source_id, source_port, pkt_id]])
 
 	# The size of the header generated by this layer
 	# Expected size
