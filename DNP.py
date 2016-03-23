@@ -12,12 +12,16 @@ class DNP:
 
 	# Configures DNP protocol
 	# buffer_timeout defines how long a fragmented message will be kept without an update before being dropped
-	def __init__(self, node_id, routing_layer, buffer_timeout = .5, upper_layer = None):
+	def __init__(self, node_id, send_list, buffer_timeout = .5, upper_layer = None):
 
 		self.node_id = node_id
 
+		# This holds a list of packets to be sent by the main node
+		self.send_list = send_list
+
 		# Holds information about next hops and link mtus
-		self.routing_layer = routing_layer
+		# Placeholder, needs to be set later before using the class
+		self.routing_layer = None
 
 		self.buffer_timeout = buffer_timeout
 
@@ -34,6 +38,26 @@ class DNP:
 
 		# The link layer that will handle lower level communication
 		self.lower_layer = link.Link(self)
+
+	# Sets the routing info to be used for forwarding packets
+	def set_routing(self, routing_layer):
+
+		self.routing_layer = routing_layer
+
+	# Sends a packet, uses pack to create the packet / fragments
+	# Does not handle errors, such as an unreachable destination
+	def send(self, message, destination_id, destination_port, source_port, link_mtu, TTL = None):
+
+		# Get the packet ready for sending
+		fragments = self.pack(message, destination_id, destination_port, source_port, link_mtu, TTL)
+
+		# Get the send info from the routing table, fails if desintation not reachable
+		send_info = self.routing_layer.get_next_hop_sock(destination_id)[:1]
+
+		# Place each fragment into the send buffer
+		for item in fragments:
+
+			self.send_list.append((item, send_info))
 
 	# Creates a best effort service packet
 	# Returns a list of strings with the packet header and content
@@ -156,7 +180,10 @@ class DNP:
 
 			logging.info("Got packet for another destination: " + str(dest_id))
 
-			# TODO: get routing and forward packet
+			if self.routing_layer is not None:
+
+				# TODO: get routing and forward packet
+				pass
 
 			return None
 

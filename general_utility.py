@@ -48,6 +48,7 @@ def unpack_string(to_unpack):
 
 # Opens topology file and returns information about the node with the sent name
 # (ip, port, connection1, connection2, mtu)
+# TODO: extend to more than 2 connections?
 def get_topology_from_file(file_name, node_id):
 
 	# Open topology file
@@ -59,7 +60,7 @@ def get_topology_from_file(file_name, node_id):
 			# Ignore lines that do not correspond to this node_id, which should be the first token in the line
 			line_contents = line.split()
 			line_id = line_contents[0]
-			if line_id == node_id:
+			if line_id == str(node_id):
 
 				# Get all of the relevant info from the line
 				ip = line_contents[1]
