@@ -11,7 +11,13 @@ from general_utility import *
 class Route:
 
 	# Initializes the dictionaries for routing and the objective for calculating shortest paths
-	def __init__(self, node_id, topology_file, DNP, cost_function = "fewest_hops"):
+	def __init__(self, node_id, topology_file, DNP, service_id = 2, cost_function = "fewest_hops"):
+
+		# Simple packet sender
+		self.DNP = DNP
+
+		self.service_id = service_id
+		self.node_id = node_id
 
 		# Holds the possible cost functions
 		self.costs = {"fewest_hops" : self.fewest_hops}
@@ -31,7 +37,7 @@ class Route:
 		self.node_id_to_next_hop = {int(node_id) : (int(node_id), 0)}
 
 		# Load the file to get the network topology
-		ip, port, connection1, connection2, mtu = get_topology_from_file(topology_file, node_id)
+		self.ip, self.port, connection1, connection2, self.mtu = get_topology_from_file(topology_file, node_id)
 
 		# Go through the connections and get their info from the file
 		for connection_id in (connection1, connection2):
@@ -40,7 +46,7 @@ class Route:
 			conn_ip, conn_port, ignore1, ignore2, conn_mtu = get_topology_from_file(topology_file, connection_id)
 
 			# Add as next hop
-			self.add_connection(connection_id, conn_ip, conn_port, conn_mtu)
+			self.add_connection(connection_id, conn_ip, conn_port, int(conn_mtu))
 
 			# Add to the routing table as single hops
 			self.node_id_to_next_hop[int(connection_id)] = (int(connection_id), self.cost_function(0))
@@ -71,7 +77,7 @@ class Route:
 		advertisement = []
 		for item in pairs:
 
-			advertisement.append(pairs.split(","))
+			advertisement.append(item.split(","))
 
 		# Update the routing table
 		self.update_routing(source_id, advertisement)
@@ -79,14 +85,24 @@ class Route:
 	# Returns the info needed for UDP_socket based on the target node
 	def get_next_hop_sock(self, target_id):
 
+		# Special case if this is the destination
+		if int(target_id) == int(self.node_id):
+
+			return (self.ip, self.port, self.mtu)
+
 		# Get the info to send to
-		send_info = self.node_id_to_UDP[self.get_next_hop(target_id)]
+		send_info = self.node_id_to_UDP[self.get_next_hop(target_id)][:2]
 
 		return send_info
 
 	# Gets the next hop for a packet given the final target node id
 	# returns the id of the neighbor
 	def get_next_hop(self, target_id):
+
+		# Special case if the target is this node
+		if int(target_id) == int(self.node_id):
+
+			return target_id
 
 		# Get the next hop for this target, fails if the target cannot be reached
 		try:
@@ -104,16 +120,42 @@ class Route:
 
 		return next_hop_id
 
+	# Returns the id of the neighbor to send to and the mtu of the link
+	def get_next_hop_info(self, target_id):
+
+		next_hop_id = self.get_next_hop(target_id)
+
+		link_mtu = self.get_link_mtu(next_hop_id)
+
+		return next_hop_id, link_mtu
+
+	# Gets the mtu for a link
+	def get_link_mtu(self, target_id):
+
+		# Fails if this node is not linked
+		try:
+
+			link_mtu = self.node_id_to_UDP[target_id][2]
+
+		# Not linked
+		except KeyError:
+
+			raise KeyError("Not linked to node: " + str(target_id))
+
+		else:
+
+			return link_mtu
+
 	# Adds a next hop link to this node
 	def add_connection(self, connection_id, connection_ip, connection_port, connection_mtu):
 
-		self.node_id_to_UDP[int(connection_id)] = (connection_ip, connection_port, connection_mtu)
+		self.node_id_to_UDP[int(connection_id)] = (connection_ip, int(connection_port), int(connection_mtu))
 
 	# Calculates cost based on number of hops
 	# Basically just adds 1
 	def fewest_hops(self, tail_cost):
 
-		return tail_cost + 1
+		return int(tail_cost) + 1
 
 	# Updates the routing table based on the advertisement message
 	# advertisement : ((can_reach_id, cost), ...)
@@ -126,6 +168,8 @@ class Route:
 
 		# Go through each node / cost and check if it is better than what is currently stored in the table
 		for (target_id, cost) in reach_info:
+
+			target_id = int(target_id)
 
 			# Get the cost of using this path
 			ad_cost = self.cost_function(cost)
@@ -162,9 +206,18 @@ class Route:
 
 		# Reset the unstable routing table
 		self.unstable_route = copy.copy(self.link_info)
-	'''
-	# Creates an advertisement message based on the current unstable routing table
-	def make_advertisement_packet(self):
+
+	# Sends an advertisement message based on the current unstable routing table
+	def send_advertisement_packet(self):
+
+		# Send the packet to the neighbors
+		for neighbor_id in self.node_id_to_UDP.keys():
+
+			# Send the advertisement
+			self.DNP.send(advertisement_message, neighbor_id, self.service_id, self.service_id, self.get_link_mtu(neighbor_id))
+
+	# Makes an advertisement message
+	def make_advertisement_message(self):
 
 		# Go through the unstable table
 		advertisement_message = ""
@@ -173,14 +226,8 @@ class Route:
 			# Add the id and the cost to the message
 			advertisement_message += str(target_id) + "," + str(self.unstable_route[target_id][1]) + ";"
 
-		# Send the packet to the neighbors
-		for neighbor_id in self.node_id_to_UDP.keys():
+		return advertisement_message
 
-			# Get the UDP info
-
-			# Send the advertisement
-			self.DNP.send(message, )
-	'''
 	# Returns the current routing table as a string
 	# One entry is:
 	# Target--node_id--NextHop--next_hop--Cost--cost

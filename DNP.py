@@ -52,7 +52,7 @@ class DNP:
 		fragments = self.pack(message, destination_id, destination_port, source_port, link_mtu, TTL)
 
 		# Get the send info from the routing table, fails if desintation not reachable
-		send_info = self.routing_layer.get_next_hop_sock(destination_id)[:1]
+		send_info = self.routing_layer.get_next_hop_sock(destination_id)
 
 		# Place each fragment into the send buffer
 		for item in fragments:
