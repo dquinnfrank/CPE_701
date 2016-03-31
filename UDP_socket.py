@@ -97,12 +97,13 @@ class UDP_socket:
 		logging.debug("Message contents: " + message)
 
 	# Sends a list of messages to the same address. Uses send_garbled
-	def send_all_garbled(self, message_list, send_info):
+	# Each item should have (message, (ip, port))
+	def send_all_garbled(self, message_list):
 
 		# Call send_garbled for each message
-		for message in message_list:
+		for send_item in message_list:
 
-			self.send_garbled(message, send_info)
+			self.send_garbled(send_item[0], send_item[1])
 
 	# Sets the garbling parameters of this socket
 	# Throws execptions for invalid input

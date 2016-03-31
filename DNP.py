@@ -40,16 +40,17 @@ class DNP:
 		self.lower_layer = link.Link(self)
 
 	# Sets the routing info to be used for forwarding packets
+	# WARNING needs to be called before using DNP
 	def set_routing(self, routing_layer):
 
 		self.routing_layer = routing_layer
 
 	# Sends a packet, uses pack to create the packet / fragments
 	# Does not handle errors, such as an unreachable destination
-	def send(self, message, destination_id, destination_port, source_port, link_mtu, TTL = None):
+	def send(self, message, destination_id, destination_port, source_port, TTL = None):
 
 		# Get the packet ready for sending
-		fragments = self.pack(message, destination_id, destination_port, source_port, link_mtu, TTL)
+		fragments = self.pack(message, destination_id, destination_port, source_port, TTL)
 
 		# Get the send info from the routing table, fails if desintation not reachable
 		send_info = self.routing_layer.get_next_hop_sock(destination_id)
@@ -63,7 +64,7 @@ class DNP:
 	# Returns a list of strings with the packet header and content
 	# Each item in the list is a fragment of the packet, commonly there will only be one
 	# TODO: take out mtu and get it from the route layer
-	def pack(self, message, destination_id, destination_port, source_port, link_mtu, TTL = None):
+	def pack(self, message, destination_id, destination_port, source_port, TTL = None):
 
 		# Holds all of the fragments to send
 		message_fragments = []
@@ -73,6 +74,9 @@ class DNP:
 
 		# Save the total size of the message
 		message_size = len(message)
+
+		# Get the mtu for the destination
+		link_mtu = self.routing_layer.get_next_hop_info(destination_id)[1]
 
 		# Max size of a message body is based off of the link_mtu
 		max_size = link_mtu - self.header_total()
@@ -139,7 +143,7 @@ class DNP:
 			total_size = len(message)
 
 		# Get the binary header for the DNP portion of the message
-		DNP_header = pack_string([destination_id, self.packet_counter, offset, total_size, destination_port, self.node_id, source_port])
+		DNP_header = pack_string([int(destination_id), self.packet_counter, offset, total_size, destination_port, int(self.node_id), source_port])
 
 		# Concatinate with the body to make the DNP portion of the packet
 		DNP_partial_packet = DNP_header + message
@@ -158,8 +162,10 @@ class DNP:
 	# If the packet is not destined for this node, the packet will be forwarded and return will be None
 	#
 	# If this is a fragment, it will be placed in the buffer.
-	# If all fragments are collected, the packet info and body will be returned
 	# If there are more fragments, the return will be None
+	#
+	# If all fragments are collected, the packet info and body will be returned
+	# (dest_port, source_id, source_port, message)
 	def unpack(self, packet):
 
 		# Unpack the packet, might fail
