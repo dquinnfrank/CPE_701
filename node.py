@@ -21,7 +21,24 @@ class Node:
 
 	# Starts the node
 	# Needs the ID of this node and the configuration file for the network
-	def __init__(self, node_id, topology_file, loss_chance = 0, corruption_chance = 0, select_timeout=.1, cleanup_timeout=.5):
+	def __init__(self, node_id, topology_file, loss_chance = 0, corruption_chance = 0, select_timeout=.1, cleanup_timeout=.5, logger_level="WARNING", logger_file_handle=None):
+
+		# Set the logger file, if sent
+		if logger_file_handle is not None:
+
+			# Add the node id and .log to the handle
+			log_file_name = logger_file_handle + "_" + str(node_id) + ".log"
+
+			print "Saving log file to: " + log_file_name
+
+			logging.basicConfig(level=logger_level, filename = log_file_name, filemode='a')
+
+		else:
+
+			# Set the logger level
+			logging.basicConfig(level=logger_level)
+
+		logging.warning("Starting node: " + str(node_id))
 
 		# The buffer size when getting data from the socket
 		self.buffer_size = 4096
@@ -64,7 +81,13 @@ class Node:
 
 	# TODO: use @classmethod to make a constructor that loads from a file
 
+	# Destructor
+	def __del__(self):
+
+		logging.shutdown()
+
 	# Runs the node by accepting packets and user commands
+	# This is a blacking command, never stops until user quits
 	def run(self):
 
 		self.quit = False
@@ -114,6 +137,8 @@ class Node:
 					# Use DNP to open the packet
 					result = self.DNP.unpack(socket_input)
 
+					logging.info("Got packet: " + str(result))
+
 					# If the return is not None, forward the packet to the specified service
 					if result is not None:
 
@@ -148,9 +173,22 @@ class Node:
 			# Do cleanup if enough time has passed
 			if time.time() - last_cleanup > self.cleanup_timeout:
 
+				# Reset cleanup time
+				last_cleanup = time.time()
+
 				# TEMP print to show working
 				#print "Doing cleanup"
-				pass
+				for service in self.services.values():
+
+					# May not have any cleanup
+					try:
+
+						service.cleanup()
+
+					# Doesn't have cleanup, just ignore
+					except AttributeError:
+
+						pass
 
 	# Creates the standard services at a node
 	#

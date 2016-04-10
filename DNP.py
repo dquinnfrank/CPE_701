@@ -46,14 +46,14 @@ class DNP:
 		self.routing_layer = routing_layer
 
 	# Sends a packet, uses pack to create the packet / fragments
-	# Does not handle errors, such as an unreachable destination
-	def send(self, message, destination_id, destination_port, source_port, TTL = None):
+	# If ignore_unreachable is True, packet will be sent even
+	def send(self, message, destination_id, destination_port, source_port, TTL = None, link_only = False):
 
 		# Get the packet ready for sending
-		fragments = self.pack(message, destination_id, destination_port, source_port, TTL)
+		fragments = self.pack(message, destination_id, destination_port, source_port, TTL, link_only=link_only)
 
 		# Get the send info from the routing table, fails if desintation not reachable
-		send_info = self.routing_layer.get_next_hop_sock(destination_id)
+		send_info = self.routing_layer.get_next_hop_sock(destination_id, link_only=link_only)
 
 		# Place each fragment into the send buffer
 		for item in fragments:
@@ -64,7 +64,7 @@ class DNP:
 	# Returns a list of strings with the packet header and content
 	# Each item in the list is a fragment of the packet, commonly there will only be one
 	# TODO: take out mtu and get it from the route layer
-	def pack(self, message, destination_id, destination_port, source_port, TTL = None):
+	def pack(self, message, destination_id, destination_port, source_port, TTL = None, link_only=False):
 
 		# Holds all of the fragments to send
 		message_fragments = []
@@ -76,7 +76,7 @@ class DNP:
 		message_size = len(message)
 
 		# Get the mtu for the destination
-		link_mtu = self.routing_layer.get_next_hop_info(destination_id)[1]
+		link_mtu = self.routing_layer.get_next_hop_info(destination_id, link_only=link_only)[1]
 
 		# Max size of a message body is based off of the link_mtu
 		max_size = link_mtu - self.header_total()

@@ -4,6 +4,7 @@
 
 import logging
 import copy
+import time
 
 from general_utility import *
 #import link
@@ -11,13 +12,16 @@ from general_utility import *
 class Route:
 
 	# Initializes the dictionaries for routing and the objective for calculating shortest paths
-	def __init__(self, node_id, topology_file, DNP, service_id = 2, cost_function = "fewest_hops"):
+	def __init__(self, node_id, topology_file, DNP, service_id = 2, cost_function = "fewest_hops", heartbeat_interval=1.0):
 
 		# Simple packet sender
 		self.DNP = DNP
 
 		self.service_id = service_id
 		self.node_id = node_id
+
+		# How often to ping neighbors
+		self.heartbeat_interval = heartbeat_interval
 
 		# Holds the possible cost functions
 		self.costs = {"fewest_hops" : self.fewest_hops}
@@ -54,10 +58,35 @@ class Route:
 		# Used temporarily when updating routing table
 		# Do not use for routing
 		# node_id : (connection_id, cost)
-		self.unstable_route = copy.copy(self.node_id_to_next_hop)
+		#self.unstable_route = copy.copy(self.node_id_to_next_hop)
+		self.unstable_route = {int(node_id) : (int(node_id), 0)}
 
 		# Holds the basic link info, used for reseting unstable_route
-		self.link_info = copy.copy(self.unstable_route)
+		#self.link_info = copy.copy(self.unstable_route)
+		#self.link_info = {int(node_id) : (int(node_id), 0)}
+		self.link_info = copy.copy(self.node_id_to_next_hop)
+		del self.link_info[self.node_id]
+
+		# Marks if a link is not active
+		self.active_links = {}
+		for link_name in self.node_id_to_UDP.keys():
+			self.active_links[link_name] = False
+
+		# The max number of times to ping a node
+		self.ping_max = 3
+
+		# Tracks how many times a node has been pinged
+		self.ping_count = {}
+		for link_name in self.node_id_to_UDP.keys():
+			self.ping_count[link_name] = 0
+
+		# Tracks last time since neighbor responded to ping
+		self.last_alive = {}
+		for link_name in self.node_id_to_UDP.keys():
+			self.last_alive[link_name] = 0
+
+		# Last time since heartbeat was run
+		self.last_beat = 0
 
 		self.stablize()
 
@@ -70,20 +99,81 @@ class Route:
 		# Get the readable contents of the package
 		(dest_port, source_id, source_port, message) = packet
 
-		# Break the message into the advertisement pairs
-		pairs = message.split(";")
+		# Get the type of packet
+		pkt_type, pkt_contents = message.split(";", 1)
 
-		# Break each pair into id and cost and add to the advertisement
-		advertisement = []
-		for item in pairs:
+		# Heartbeat
+		if pkt_type == "1":
+			logging.debug("Got heartbeat from: " + str(source_id))
 
-			advertisement.append(item.split(","))
+			# Send response
+			self.DNP.send("2;", source_id, self.service_id, self.service_id, TTL=1, link_only=True)
 
-		# Update the routing table
-		self.update_routing(source_id, advertisement)
+		# Ping response
+		elif pkt_type == "2":
+
+			# Set the neighbor as being alive
+			self.last_alive[source_id] = time.time()
+			self.active_links[source_id] = True
+
+			# Reset the ping count for this neighbor
+			self.ping_count[source_id] = 0
+
+		# Update message
+		elif pkt_type == "3":
+
+			# Break the message into the advertisement pairs
+			pairs = pkt_contents.splt(";")
+
+			# Break each pair into id and cost and add to the advertisement
+			advertisement = []
+			for item in pairs:
+
+				advertisement.append(item.split(","))
+
+			# Update the routing table
+			self.update_routing(source_id, advertisement)
+
+	# Checks to make sure that neighbors are alive
+	# Triggers routing updates
+	def cleanup(self):
+
+		# Get the current time
+		current_time = time.time()
+
+		# Set any links that have been pinged more than 3 times to dead
+		for link_name in self.ping_count.keys():
+
+			if self.ping_count[link_name] > 3:
+
+				self.active_links[link_name] = False
+
+				self.ping_count[link_name] = 0
+
+				logging.warning("Link dead: " + str(link_name))
+
+		# If a link is dead, update the unstable table to not include dead links
+		#self.unstable_route = {int(node_id) : (int(node_id), 0)}
+		#for 
+
+		# Ping after certain intervals
+		#if current_time - self.last_beat > self.heartbeat_interval:
+		# TEMP override to always run
+		if True:
+
+			# Ping all links
+			for link_name in self.link_info.keys():
+
+				self.DNP.send("1;", link_name, self.service_id, self.service_id, TTL=1, link_only=True)
+
+				# Track number of pings
+				self.ping_count[link_name] += 1
+
+		# Set the last clean time to now
+		self.last_beat = self.current_time
 
 	# Returns the info needed for UDP_socket based on the target node
-	def get_next_hop_sock(self, target_id):
+	def get_next_hop_sock(self, target_id, link_only=False):
 
 		# Special case if this is the destination
 		if int(target_id) == int(self.node_id):
@@ -91,39 +181,48 @@ class Route:
 			return (self.ip, self.port, self.mtu)
 
 		# Get the info to send to
-		send_info = self.node_id_to_UDP[self.get_next_hop(target_id)][:2]
+		send_info = self.node_id_to_UDP[self.get_next_hop(target_id, link_only=link_only)][:2]
 
 		return send_info
 
 	# Gets the next hop for a packet given the final target node id
 	# returns the id of the neighbor
-	def get_next_hop(self, target_id):
+	def get_next_hop(self, target_id, link_only=False):
 
 		# Special case if the target is this node
 		if int(target_id) == int(self.node_id):
 
 			return target_id
 
-		# Get the next hop for this target, fails if the target cannot be reached
-		try:
+		# If link_only is true, consider only links of this node and ignore down links
+		if link_only:
 
-			next_hop_id = self.node_id_to_next_hop[int(target_id)][0]
+			return target_id
 
-		except KeyError:
+		# Normal routing
+		else:
 
-			raise KeyError(str(target_id) + " is not reachable")
+			# Get the next hop for this target, fails if the target cannot be reached
+			try:
 
-		# Check for an unreachable destination
-		if next_hop_id == "UNREACHABLE":
+				next_hop_id = self.node_id_to_next_hop[int(target_id)][0]
 
-			raise KeyError(str(target_id) + " is not reachable")
+			except KeyError:
 
-		return next_hop_id
+				raise KeyError(str(target_id) + " is not reachable")
+
+			# Check for an unreachable destination
+			if next_hop_id == "UNREACHABLE":
+
+				raise KeyError(str(target_id) + " is not reachable")
+
+			return next_hop_id
 
 	# Returns the id of the neighbor to send to and the mtu of the link
-	def get_next_hop_info(self, target_id):
+	# link_only True means that only links of this node will be considered, down or not
+	def get_next_hop_info(self, target_id, link_only=False):
 
-		next_hop_id = self.get_next_hop(target_id)
+		next_hop_id = self.get_next_hop(target_id, link_only=link_only)
 
 		link_mtu = self.get_link_mtu(next_hop_id)
 
@@ -195,6 +294,12 @@ class Route:
 
 					self.unstable_route[int(target_id)] = (int(source_id), ad_cost)
 
+	# Resets unstable route based on the active links
+	def reset_unstable(self):
+
+		# Cost to self is always 0
+		self.unstable_route = {}
+
 	# Makes the updated routing table into the new rounting table
 	# TODO: make this safer? Calling will wipe out the table if done at the wrong time
 	def stablize(self):
@@ -210,17 +315,21 @@ class Route:
 	# Sends an advertisement message based on the current unstable routing table
 	def send_advertisement_packet(self):
 
+		# Get the advertisement
+		advertisement_message = self.make_advertisement_message()
+
 		# Send the packet to the neighbors
 		for neighbor_id in self.node_id_to_UDP.keys():
 
 			# Send the advertisement
-			self.DNP.send(advertisement_message, neighbor_id, self.service_id, self.service_id, self.get_link_mtu(neighbor_id))
+			self.DNP.send(advertisement_message, neighbor_id, self.service_id, self.service_id, TTL=1, link_only=True)
 
 	# Makes an advertisement message
 	def make_advertisement_message(self):
 
 		# Go through the unstable table
-		advertisement_message = ""
+		# The type of the message is first, 2 is an advertisement
+		advertisement_message = "3;"
 		for target_id in self.unstable_route.keys():
 
 			# Add the id and the cost to the message
