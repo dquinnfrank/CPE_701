@@ -12,7 +12,7 @@ from general_utility import *
 class Route:
 
 	# Initializes the dictionaries for routing and the objective for calculating shortest paths
-	def __init__(self, node_id, topology_file, DNP, service_id = 2, cost_function = "fewest_hops", heartbeat_interval=1.0):
+	def __init__(self, node_id, topology_file, DNP, service_id = 2, cost_function = "fewest_hops", heartbeat_interval=.5, stablize_interval=2.0, replace_interval = .51):
 
 		# Simple packet sender
 		self.DNP = DNP
@@ -22,6 +22,12 @@ class Route:
 
 		# How often to ping neighbors
 		self.heartbeat_interval = heartbeat_interval
+
+		# How long to wait for updates
+		self.stablize_interval = stablize_interval
+
+		# How long to keep dead links out
+		self.kill_replace = replace_interval
 
 		# Holds the possible cost functions
 		self.costs = {"fewest_hops" : self.fewest_hops}
@@ -88,6 +94,12 @@ class Route:
 		# Last time since heartbeat was run
 		self.last_beat = 0
 
+		# Last time update happened
+		self.last_update = 0
+
+		# Recently killed links
+		self.recently_killed = {}
+
 		self.stablize()
 
 	# The entry point for packets handled by the routing service
@@ -98,6 +110,7 @@ class Route:
 
 		# Get the readable contents of the package
 		(dest_port, source_id, source_port, message) = packet
+		source_id = int(source_id)
 
 		# Get the type of packet
 		pkt_type, pkt_contents = message.split(";", 1)
@@ -112,6 +125,17 @@ class Route:
 		# Ping response
 		elif pkt_type == "2":
 
+			logging.debug("Heartbeat response from: " + str(source_id))
+
+			# Link just came back up
+			if self.active_links[source_id] is False:
+
+				logging.warning("Link alive: " + str(source_id))
+
+				# Add the link back into the unstable routing table
+				self.unstable_route[source_id] = (source_id, 1)
+				self.last_update = time.time()
+
 			# Set the neighbor as being alive
 			self.last_alive[source_id] = time.time()
 			self.active_links[source_id] = True
@@ -123,13 +147,13 @@ class Route:
 		elif pkt_type == "3":
 
 			# Break the message into the advertisement pairs
-			pairs = pkt_contents.splt(";")
+			pairs = pkt_contents.split(";")
 
 			# Break each pair into id and cost and add to the advertisement
 			advertisement = []
 			for item in pairs:
-
-				advertisement.append(item.split(","))
+				if item is not "":
+					advertisement.append(item.split(","))
 
 			# Update the routing table
 			self.update_routing(source_id, advertisement)
@@ -143,6 +167,10 @@ class Route:
 
 		# Set any links that have been pinged more than 3 times to dead
 		for link_name in self.ping_count.keys():
+			link_name = int(link_name)
+
+			# Link state before check
+			previous_state = self.active_links[link_name]
 
 			if self.ping_count[link_name] > 3:
 
@@ -150,16 +178,24 @@ class Route:
 
 				self.ping_count[link_name] = 0
 
-				logging.warning("Link dead: " + str(link_name))
+				# Link was alive and is now dead
+				if previous_state == True:
 
-		# If a link is dead, update the unstable table to not include dead links
-		#self.unstable_route = {int(node_id) : (int(node_id), 0)}
-		#for 
+					logging.warning("Link dead: " + str(link_name))
+
+					# If a link is dead, update the unstable table to not include dead links
+					
+					for target_id in self.unstable_route.keys():
+
+						if self.unstable_route[target_id][0] == link_name:
+
+							del self.unstable_route[target_id]
+							self.last_update = time.time()
 
 		# Ping after certain intervals
-		#if current_time - self.last_beat > self.heartbeat_interval:
+		if current_time - self.last_beat > self.heartbeat_interval:
 		# TEMP override to always run
-		if True:
+		#if True:
 
 			# Ping all links
 			for link_name in self.link_info.keys():
@@ -169,8 +205,23 @@ class Route:
 				# Track number of pings
 				self.ping_count[link_name] += 1
 
+		# Remove killed links and allow them back in
+		for item in self.recently_killed.keys():
+			if current_time - self.recently_killed[item] > self.kill_replace:
+
+				del self.recently_killed[item]
+				#print "back"
+
+		# Stablize routing table
+		if current_time - self.last_update > self.stablize_interval:
+			#print "Stablize"
+			self.stablize()
+
 		# Set the last clean time to now
-		self.last_beat = self.current_time
+		self.last_beat = current_time
+
+		# Send advertisement
+		self.send_advertisement_packet()
 
 	# Returns the info needed for UDP_socket based on the target node
 	def get_next_hop_sock(self, target_id, link_only=False):
@@ -260,10 +311,38 @@ class Route:
 	# advertisement : ((can_reach_id, cost), ...)
 	def update_routing(self, source_id, advertisement):
 
+		# Tracks if any updates were made
+		updates_made = False
+
 		# Unpack the advertisement
 		#source_id = advertisement[0]
 		#reach_info = advertisement[1:]
 		reach_info = advertisement
+
+		source_id = int(source_id)
+
+		# Ignore phantom updates
+		if not self.active_links[source_id]:
+
+			return None
+
+		# Go through each node in the current table
+		# Any node in the table that uses that link, but is not in the advertisement indicates a dead link
+		#print "dead check"
+		for table_id in self.unstable_route.keys():
+
+			table_id = int(table_id)
+			#print self.unstable_route
+			#print self.unstable_route[table_id], " ", source_id, " ", table_id, " ", reach_info
+			#print int(self.unstable_route[table_id][0]) == source_id, " ", int(table_id) not in [int(r[0]) for r in reach_info]
+			if int(self.unstable_route[table_id][0]) == source_id and int(table_id) not in [int(r[0]) for r in reach_info]:
+
+				updates_made = True
+				#print "deaded: ", table_id
+				self.recently_killed[table_id] = time.time()
+
+				# Remove the entry
+				del self.unstable_route[table_id]
 
 		# Go through each node / cost and check if it is better than what is currently stored in the table
 		for (target_id, cost) in reach_info:
@@ -274,7 +353,10 @@ class Route:
 			ad_cost = self.cost_function(cost)
 
 			# If this id is not in the list, add it with the updated cost
-			if target_id not in self.unstable_route.keys():
+			if target_id not in self.unstable_route.keys() and target_id not in self.recently_killed.keys():
+
+				updates_made = True
+				#print "new"
 
 				self.unstable_route[target_id] = (source_id, ad_cost)
 
@@ -287,18 +369,29 @@ class Route:
 				# Use the new cost if it is less than the current cost
 				if ad_cost < current_cost:
 
+					updates_made = True
+					#print "better"
+
 					self.unstable_route[int(target_id)] = (int(source_id), ad_cost)
 
 				# In case of ties, use the node with the lower id
 				elif ad_cost == current_cost and source_id < current_next_hop:
 
+					updates_made = True
+					#print "tie"
+
 					self.unstable_route[int(target_id)] = (int(source_id), ad_cost)
+
+		# If any updates were made, set the update time
+		if updates_made:
+
+			self.last_update = time.time()
 
 	# Resets unstable route based on the active links
 	def reset_unstable(self):
 
 		# Cost to self is always 0
-		self.unstable_route = {}
+		self.unstable_route = {int(self.node_id): (self.node_id, 0)}
 
 	# Makes the updated routing table into the new rounting table
 	# TODO: make this safer? Calling will wipe out the table if done at the wrong time
@@ -310,7 +403,8 @@ class Route:
 		logging.info("Routing table updated: " + self.routing_table_string(" "))
 
 		# Reset the unstable routing table
-		self.unstable_route = copy.copy(self.link_info)
+		#self.unstable_route = copy.copy(self.link_info)
+		#self.reset_unstable()
 
 	# Sends an advertisement message based on the current unstable routing table
 	def send_advertisement_packet(self):

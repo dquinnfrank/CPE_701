@@ -93,7 +93,7 @@ class UDP_socket:
 		# Send the message
 		self.sock.sendto(message, send_info)
 
-		logging.info("Packet sent to: " + str(send_info))
+		logging.debug("Packet sent to: " + str(send_info))
 		logging.debug("Message contents: " + message)
 
 	# Sends a list of messages to the same address. Uses send_garbled

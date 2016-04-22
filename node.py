@@ -92,11 +92,23 @@ class Node:
 
 		self.quit = False
 
-		# Time since cleanup was last run
-		last_cleanup = time.time()
+		# Burn all queued packets
+		start = time.time()
+		burn_time = 1.0
+		while time.time() - start < burn_time:
+
+			input_from, ignore, ignore = select.select(self.inputs, [], [], .01)
+
+			for input_item in input_from:
+				if input_item is not sys.stdin:
+
+					socket_input = input_item.recv(self.buffer_size)
 
 		# Show the menu
 		self.show_menu()
+
+		# Time since cleanup was last run
+		last_cleanup = time.time()
 
 		# Continue to run until quit
 		while not self.quit:
@@ -257,7 +269,7 @@ class Node:
 			self.console_message(target_id, message)
 
 		# See the current routing table
-		elif command == "routing_table":
+		elif command == "routing":
 
 			to_show = self.router.routing_table_string()
 
@@ -282,6 +294,6 @@ class Node:
 		print "'quit' to quit"
 		print "'menu' to show this menu again"
 		print "'message' [node id to send to] [what to send] to send a message to another node"
-		print "'routing_table' to show the current routing table"
+		print "'routing' to show the current routing table"
 		print "-"*75
 		print ""

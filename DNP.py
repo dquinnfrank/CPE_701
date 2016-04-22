@@ -47,10 +47,10 @@ class DNP:
 
 	# Sends a packet, uses pack to create the packet / fragments
 	# If ignore_unreachable is True, packet will be sent even
-	def send(self, message, destination_id, destination_port, source_port, TTL = None, link_only = False):
+	def send(self, message, destination_id, destination_port, source_port, TTL = None, source_id=None, pkt_id = None, offset_start = 0, total_size = None, link_only = False):
 
 		# Get the packet ready for sending
-		fragments = self.pack(message, destination_id, destination_port, source_port, TTL, link_only=link_only)
+		fragments = self.pack(message, destination_id, destination_port, source_port, TTL, source_id=None, pkt_id = pkt_id, offset_start= offset_start, total_size=total_size, link_only=link_only)
 
 		# Get the send info from the routing table, fails if desintation not reachable
 		send_info = self.routing_layer.get_next_hop_sock(destination_id, link_only=link_only)
@@ -63,8 +63,7 @@ class DNP:
 	# Creates a best effort service packet
 	# Returns a list of strings with the packet header and content
 	# Each item in the list is a fragment of the packet, commonly there will only be one
-	# TODO: take out mtu and get it from the route layer
-	def pack(self, message, destination_id, destination_port, source_port, TTL = None, link_only=False):
+	def pack(self, message, destination_id, destination_port, source_port, TTL = None, source_id=None, pkt_id = None, offset_start = 0, total_size = None, link_only=False):
 
 		# Holds all of the fragments to send
 		message_fragments = []
@@ -72,8 +71,11 @@ class DNP:
 		# Encode the message as a standard format to ensure bytes are properly counted
 		message = message.encode("utf8")
 
-		# Save the total size of the message
-		message_size = len(message)
+		# Save the total size of the message if override is not set
+		if total_size is None:
+			tot_size = len(message)
+		else:
+			tot_size = total_size
 
 		# Get the mtu for the destination
 		link_mtu = self.routing_layer.get_next_hop_info(destination_id, link_only=link_only)[1]
@@ -81,12 +83,12 @@ class DNP:
 		# Max size of a message body is based off of the link_mtu
 		max_size = link_mtu - self.header_total()
 
-		logging.info("Message sending to: " + str(destination_id))
+		logging.debug("Message sending to: " + str(destination_id))
 
 		# If the message (and header) is larger than the mtu, it will need to be fragmented
 		# Fragmentation will continue as long as needed
 		message_remaining = message # Holds remaining message chunks
-		offset_counter = 0 # Tracks the byte offset
+		offset_counter = offset_start # Tracks the byte offset
 		while len(message_remaining) > max_size:
 
 			# Take a chunk of the message off and make a packet out of it
@@ -95,7 +97,7 @@ class DNP:
 			# Pack and add to the message list, will fail if TTL expires
 			try:
 
-				to_send = self.single_pack(message_chunk, destination_id, destination_port, source_port, TTL = TTL, offset = offset_counter, total_size = message_size)
+				to_send = self.single_pack(message_chunk, destination_id, destination_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset = offset_counter, total_size = tot_size)
 
 			# TTL has expired, don't deal with it here for now
 			except RuntimeError:
@@ -119,7 +121,7 @@ class DNP:
 			# TTL catch
 			try:
 
-				to_send = self.single_pack(message_remaining, destination_id, destination_port, source_port, TTL = TTL, offset = offset_counter, total_size = message_size)
+				to_send = self.single_pack(message_remaining, destination_id, destination_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset = offset_counter, total_size = tot_size)
 
 			# TTL expired
 			except RuntimeError:
@@ -135,15 +137,33 @@ class DNP:
 		return message_fragments
 
 	# Makes a single packet, size must be less than the mtu
-	def single_pack(self, message, destination_id, destination_port, source_port, TTL = None, offset = 0, total_size = None, increment = False):
+	def single_pack(self, message, destination_id, destination_port, source_port, TTL = None, source_id = None, pkt_id=None, offset = 0, total_size = None, increment = False):
+
+		# If source_id is None, use this node
+		if source_id is None:
+
+			send_to = int(self.node_id)
+
+		else:
+
+			send_to = int(source_id)
 
 		# If total is None, use the size of the message as the total
 		if total_size is None:
 
 			total_size = len(message)
 
+		# If pkt_id is not set, use the counter
+		if pkt_id is None:
+
+			packet_id = self.packet_counter
+
+		else:
+
+			packet_id = pkt_id
+
 		# Get the binary header for the DNP portion of the message
-		DNP_header = pack_string([int(destination_id), self.packet_counter, offset, total_size, destination_port, int(self.node_id), source_port])
+		DNP_header = pack_string([int(destination_id), packet_id, offset, total_size, destination_port, send_to, source_port])
 
 		# Concatinate with the body to make the DNP portion of the packet
 		DNP_partial_packet = DNP_header + message
@@ -186,10 +206,11 @@ class DNP:
 
 			logging.info("Got packet for another destination: " + str(dest_id))
 
-			if self.routing_layer is not None:
+			#if self.routing_layer is not None:
 
-				# TODO: get routing and forward packet
-				pass
+				# 
+			self.send(message, dest_id, dest_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset_start = offset, total_size = total_size)
+			#sending =
 
 			return None
 
