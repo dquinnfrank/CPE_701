@@ -205,6 +205,9 @@ class Route:
 				# Track number of pings
 				self.ping_count[link_name] += 1
 
+			# Send advertisement
+			self.send_advertisement_packet()
+
 		# Remove killed links and allow them back in
 		for item in self.recently_killed.keys():
 			if current_time - self.recently_killed[item] > self.kill_replace:
@@ -219,9 +222,6 @@ class Route:
 
 		# Set the last clean time to now
 		self.last_beat = current_time
-
-		# Send advertisement
-		self.send_advertisement_packet()
 
 	# Returns the info needed for UDP_socket based on the target node
 	def get_next_hop_sock(self, target_id, link_only=False):
@@ -335,7 +335,7 @@ class Route:
 			#print self.unstable_route
 			#print self.unstable_route[table_id], " ", source_id, " ", table_id, " ", reach_info
 			#print int(self.unstable_route[table_id][0]) == source_id, " ", int(table_id) not in [int(r[0]) for r in reach_info]
-			if int(self.unstable_route[table_id][0]) == source_id and int(table_id) not in [int(r[0]) for r in reach_info]:
+			if int(self.unstable_route[table_id][0]) == source_id and int(table_id) not in [int(r[0]) for r in reach_info] and table_id != int(self.node_id):
 
 				updates_made = True
 				#print "deaded: ", table_id
@@ -352,8 +352,14 @@ class Route:
 			# Get the cost of using this path
 			ad_cost = self.cost_function(cost)
 
+
+			# If this id is in the recently killed list, ignore it
+			if target_id in self.recently_killed.keys():
+
+				pass
+
 			# If this id is not in the list, add it with the updated cost
-			if target_id not in self.unstable_route.keys() and target_id not in self.recently_killed.keys():
+			elif target_id not in self.unstable_route.keys():
 
 				updates_made = True
 				#print "new"

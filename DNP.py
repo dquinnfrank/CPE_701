@@ -50,7 +50,7 @@ class DNP:
 	def send(self, message, destination_id, destination_port, source_port, TTL = None, source_id=None, pkt_id = None, offset_start = 0, total_size = None, link_only = False):
 
 		# Get the packet ready for sending
-		fragments = self.pack(message, destination_id, destination_port, source_port, TTL, source_id=None, pkt_id = pkt_id, offset_start= offset_start, total_size=total_size, link_only=link_only)
+		fragments = self.pack(message, destination_id, destination_port, source_port, TTL, source_id=source_id, pkt_id = pkt_id, offset_start= offset_start, total_size=total_size, link_only=link_only)
 
 		# Get the send info from the routing table, fails if desintation not reachable
 		send_info = self.routing_layer.get_next_hop_sock(destination_id, link_only=link_only)
