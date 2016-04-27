@@ -335,14 +335,32 @@ class Node:
 
 				service_id = rand_id
 
-				self.services[service_id] = service_point.ServicePoint(self.node_id, service_id, self.DNP, self.services, max_connections=max_connections)
+				service_temp = service_point.ServicePoint(self.node_id, service_id, self.DNP, self.services, max_connections=max_connections)
 
-				conn_id = self.services[service_id].start_connection(target_id, listen_port=target_listen, window=window)
+				conn_id = service_temp.start_connection(target_id, listen_port=target_listen, window=window)
 
-				self.service_points.append(service_id)
+				# Connection fails, error codes are < 0
+				if conn_id < 0:
 
-				#print "Connection id: " + str(conn_id)
-				print "Connection id: " + str(service_id)
+					service_temp = None
+
+					if conn_id == -1:
+
+						print "Connection failed, destination is not reachable"
+
+					else:
+
+						print "Connection failed"
+
+				# Service complete
+				else:
+
+					self.services[service_id] = service_temp
+
+					self.service_points.append(service_id)
+
+					#print "Connection id: " + str(conn_id)
+					print "Connection id: " + str(service_id)
 
 		# Show the ids of active services
 		elif command == "services":
