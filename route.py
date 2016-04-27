@@ -285,7 +285,14 @@ class Route:
 		# Fails if this node is not linked
 		try:
 
-			link_mtu = self.node_id_to_UDP[target_id][2]
+			# Special case for connecting to this node
+			if int(target_id) == int(self.node_id):
+
+				link_mtu = 10000
+
+			else:
+
+				link_mtu = self.node_id_to_UDP[target_id][2]
 
 		# Not linked
 		except KeyError:

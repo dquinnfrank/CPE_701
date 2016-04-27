@@ -7,13 +7,16 @@ import sys
 import os
 import logging
 import time
+import random
 
 from general_utility import *
 import UDP_socket
 import link
 import DNP
+import RTP
 import route
 import message
+import service_point
 
 # A node in the network
 # Reads all incoming packets and takes user input
@@ -57,6 +60,9 @@ class Node:
 		# This dictionary holds the services, each number is similar to a port number
 		self.services = {}
 
+		# This holds a list of ids that are service points
+		self.service_points = []
+
 		# Save the node ID and the topology file
 		self.node_id = node_id
 		self.topology_file = topology_file
@@ -78,6 +84,9 @@ class Node:
 
 		# Set the routing layer in DNP
 		self.DNP.set_routing(self.services[2])
+
+		# Tracks the ids of dynamic connections
+		self.dyn_connections = []
 
 	# TODO: use @classmethod to make a constructor that loads from a file
 
@@ -164,7 +173,7 @@ class Node:
 						# That service doesn't exist
 						except KeyError:
 
-							logging.warning("Service does not exist: " + str(service_id) + " requested by: " + str(result[1]))
+							logging.info("Service does not exist: " + str(service_id) + " requested by: " + str(result[1]))
 
 						# Have the service handle the packet
 						else:
@@ -173,9 +182,10 @@ class Node:
 								server.serve(result)
 
 							# Blissfully ignore problems
-							except:
+							except Exception, e:
 
 								logging.error("Unexpected error:" + str(sys.exc_info()[0]))
+								print e
 
 			# Send all messages waiting
 			if len(self.send_list) > 0:
@@ -276,6 +286,89 @@ class Node:
 			print "Current routing table:"
 			print to_show
 
+		# Start a download service
+		elif command == "startService":
+
+			# No number sent
+			if not contents:
+
+				print "Need max connections"
+
+			else:
+				#(service_id, max_connections) = contents.split()
+				#service_id = int(service_id)
+				#max_connections = int(service_id)
+				max_connections = int(contents)
+
+				#service_id = random.randint(10,19)
+
+				rand_id = random.randint(20, 500)
+				while (rand_id in self.services.keys()):
+
+					rand_id = random.randint(20, 500)
+
+				service_id = rand_id
+
+				self.services[service_id] = service_point.ServicePoint(self.node_id, service_id, self.DNP, self.services, max_connections=max_connections)
+
+				self.service_points.append(service_id)
+
+				print "Service created: ", service_id
+
+		# Connect to another node
+		elif command == "connectTo":
+
+			if not contents or len(contents.split()) < 3:
+
+				print "Need target_id, target_port, window"
+
+			else:
+
+				(target_id, target_listen, window) = [int(item) for item in contents.split()]
+
+				max_connections = 1
+
+				rand_id = random.randint(20, 500)
+				while (rand_id in self.services.keys()):
+
+					rand_id = random.randint(20, 500)
+
+				service_id = rand_id
+
+				self.services[service_id] = service_point.ServicePoint(self.node_id, service_id, self.DNP, self.services, max_connections=max_connections)
+
+				conn_id = self.services[service_id].start_connection(target_id, listen_port=target_listen, window=window)
+
+				self.service_points.append(service_id)
+
+				#print "Connection id: " + str(conn_id)
+				print "Connection id: " + str(service_id)
+
+		# Show the ids of active services
+		elif command == "services":
+
+			print "Service points:"
+			for item in self.service_points:
+				print item
+
+		# Show the open connections on a service
+		elif command == "connections":
+
+			if not contents:
+				print "Need service id"
+
+			else:
+
+				service_id = int(contents)
+
+				if service_id in self.service_points:
+
+					print self.services[service_id].connection_string()
+
+				else:
+
+					print "No service id with that number"
+
 		# Command not known
 		else:
 
@@ -295,5 +388,9 @@ class Node:
 		print "'menu' to show this menu again"
 		print "'message' [node id to send to] [what to send] to send a message to another node"
 		print "'routing' to show the current routing table"
+		print "'startService' [max_connections] to start a download service"
+		print "'connectTo' [target id] [target service] [window] connect to target node with window size"
+		print "'services' to show active service points"
+		print "'connections' [service id] show open connections on service"
 		print "-"*75
 		print ""
