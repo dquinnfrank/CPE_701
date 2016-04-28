@@ -177,7 +177,7 @@ class Node:
 					# Use DNP to open the packet
 					result = self.DNP.unpack(socket_input)
 
-					print "node ", result
+					#print "node ", result
 
 					logging.info("Got packet: " + str(result))
 

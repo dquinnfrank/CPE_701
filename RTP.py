@@ -125,7 +125,7 @@ class RTP:
 	# Opens new packets
 	def serve(self, packet):
 
-		print packet
+		#print packet
 
 		# Get the readable form of the packet
 		(dest_port, source_id, source_port, message) = packet
@@ -299,7 +299,7 @@ class RTP:
 	# Sends the messages currently in the window
 	def window_send(self):
 
-		print " first ", sorted(self.all_queue.keys())[:self.window]
+		#print " first ", sorted(self.all_queue.keys())[:self.window]
 
 		# Ignore if there is nothing to send
 		if len(self.all_queue.keys()) != 0:
@@ -325,7 +325,7 @@ class RTP:
 
 	# Sends one message from the queue
 	def send_single(self, send_num):
-		print "Sending: ", send_num
+		#print "Sending: ", send_num
 
 		# Get the message out of the queue
 		message = self.all_queue[send_num]
@@ -338,9 +338,9 @@ class RTP:
 		try:
 			self.DNP.send(message, self.target_id, self.target_port, self.service_id)
 		except KeyError:
-			print "s no"
+			#print "s no"
 			pass
-		print 'k'
+		#print 'k'
 
 	# Buffers content
 	def unpack_content(self, packet):
@@ -388,10 +388,10 @@ class RTP:
 			try:
 				self.DNP.send(self.make_header(6,item,0), self.target_id, self.target_port, self.service_id)
 			except KeyError:
-				print "no"
+				#print "no"
 				pass
 
-			print item
+			#print item
 
 	# Asks for a file
 	def ask(self, file_name=None):
@@ -406,7 +406,7 @@ class RTP:
 		try:
 			self.DNP.send(self.make_header(10,0,0) + self.file_name, self.target_id, self.target_port, self.service_id)
 		except KeyError:
-			print "no"
+			#print "no"
 			pass
 
 	# Sends file acceptance
@@ -553,12 +553,12 @@ class RTP:
 				# Stream is not complete
 				if not self.done:
 
-					print "not done"
+					#print "not done"
 
 					# Check for content timeout
 					if self.last_content and time.time() - self.last_content > self.timeout:
 
-						print "content time out"
+						#print "content time out"
 
 						# Check for broken
 						if time.time() - self.last_content > self.timeout * 10:
@@ -572,7 +572,7 @@ class RTP:
 					# Check for ak timeout
 					if self.last_ak and time.time() - self.last_ak > self.timeout:
 
-						print "ak time out"
+						#print "ak time out"
 
 						# Check for broken
 						if time.time() - self.last_ak > self.timeout * 10:
