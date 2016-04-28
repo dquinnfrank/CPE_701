@@ -5,6 +5,9 @@
 
 import logging
 import time
+import os
+import base64
+import re
 
 from general_utility import *
 
@@ -15,8 +18,15 @@ def get_window(packet):
 	(dest_port, source_id, source_port, message) = packet
 
 	# Separate the header from the body
-	header = message[:gen_header_size()]
-	body = message[gen_header_size():]
+	#header = message[:gen_header_size()]
+	#body = message[gen_header_size():]
+
+	# Get the pkt type and sequence num
+	(pkt_type, sequence_num) = [int(x) for x in unpack_string(message[:8])]
+
+	# Get the total_size
+	(total_size, body) = message[8:].split("|", 1)
+	total_size = int(total_size)
 
 	return int(body)
 
@@ -60,8 +70,8 @@ class RTP:
 		# This is used to send single packets
 		self.DNP = DNP
 
-		# This is the timeout for waiting on AKs
-		self.timeout=.5
+		# This is the timeout for cleanup duties
+		self.timeout=timeout
 
 		# This is the timeout for closing the service
 		self.close_timeout = 6 * self.timeout
@@ -92,6 +102,10 @@ class RTP:
 		self.accept_max = 6
 		self.finalize_max = 6
 
+		self.reset_trackers()
+
+		self.last_clean = 0
+
 		# If target port is sent, advance stage and set port
 		if target_port:
 
@@ -110,16 +124,22 @@ class RTP:
 	# Opens new packets
 	def serve(self, packet):
 
+		#print packet
+
 		# Get the readable form of the packet
 		(dest_port, source_id, source_port, message) = packet
 
 		# Separate the header from the body
-		header = message[:self.header_size()]
-		body = message[self.header_size():]
+		#header = message[:self.header_size()]
+		#body = message[self.header_size():]
 
 		# Get the header info
-		(pkt_type, sequence_num) = unpack_string(header)
-		pkt_type = int(pkt_type)
+		#(pkt_type, sequence_num, total_size) = unpack_string(header)
+		#pkt_type = int(pkt_type)
+		#sequence_num = int(sequence_num)
+		#total_size = int(total_size)
+
+		(pkt_type, sequence_num, total_size, body) = self.separate(message)
 
 		# Execution depends on connection state and packet type
 
@@ -163,15 +183,266 @@ class RTP:
 				# Add to the connected list
 				self.connected_to.append((self.service_id, self.target_id, self.target_port))
 
+		# Content message
+		elif pkt_type == 5:
+
+			# Bundle content
+			packet_info = (sequence_num, total_size, body)
+
+			# Get the content
+			self.unpack_content(packet_info)
+
+		# AK
+		elif pkt_type == 6:
+
+			self.aked(sequence_num)
+
+		# File request
+		elif pkt_type == 10:
+
+			# Get the name of the requested file
+			file_name = body
+
+			# Try to open the file
+			try:
+
+				with open(os.path.join(content_folder, file_name), 'rb') as the_file:
+
+					# Get all of the file contents
+					#self.file_contents = base64.b64encode(the_file.read())
+					self.file_contents = the_file.read().encode('base64')
+
+			# File doesn't exist
+			except IOError:
+
+				self.DNE()
+
+			# Send the yes response and start sending content
+			else:
+
+				# Connection may already be in use
+				try:
+
+					self.send(self.file_contents)
+
+				except RuntimeError:
+
+					pass
+
+				else:
+
+					self.yes()
+
+		# File response
+		elif pkt_type == 11:
+
+			# Accepted
+			if body == 'yes':
+
+				# Unset flag, content is incoming
+				self.requested = False
+
+			# File doesn't exist
+			elif body == 'DNE':
+
+				# Abort content request
+				self.reset_trackers
+
+				logging.warning("Download failed, file does not exist")
+
 		# Not known type
 		else:
 
 			logging.error("Packet type not known: " + str(pkt_type))
 
 	# Sends a message reliably
-	def send(self):
+	def send(self, message, chunk_size=1000):
 
-		pass
+		if len(self.all_queue.keys()) != 0:
+
+			raise RuntimeError("Connection is busy")
+
+		# Reset the trackers, timing depends on it
+		self.reset_trackers()
+
+		# Save the total size of the message
+		message_total = len(message)
+
+		start = 0
+		offset = chunk_size
+		message_parts = []
+		while offset < message_total:
+
+			message_parts.append(message[start:offset])
+
+			start += chunk_size
+			offset += chunk_size
+
+		if start < message_total:
+
+			message_parts.append(message[start:])
+
+		# Add all of the messages to the queue
+		tot = 0
+		start_counter = self.packet_counter
+		for packet_id in range(start_counter, len(message_parts) + start_counter):
+
+			tot += len(message_parts[packet_id - self.packet_counter])
+
+			self.all_queue[packet_id] = self.make_header(5,packet_id, message_total) + message_parts[packet_id - self.packet_counter]
+
+	# Sends the messages currently in the window
+	def window_send(self):
+
+		# Ignore if there is nothing to send
+		if len(self.all_queue.keys()) != 0:
+
+			# Get a window of messages
+			send_candidates = sorted(self.all_queue.keys())[:self.window]
+
+			# Send any that are not waiting on AKs
+			for candidate in send_candidates:
+
+				# Check for freshness
+				if candidate not in self.ak_waiting:
+
+					# It is now waiting on ak
+					self.ak_waiting.append(candidate)
+
+					# Send the content of this message
+					self.send_single(candidate)
+
+	# Sends one message from the queue
+	def send_single(self, send_num):
+
+		# Get the message out of the queue
+		message = self.all_queue[send_num]
+
+		#print message
+
+		# Send it
+		self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+
+	# Buffers content
+	def unpack_content(self, packet):
+
+		self.last_content = time.time()
+
+		(sequence_num, total_size, body) = packet
+
+		# New stream, set the total size
+		if self.total_size is None:
+
+			self.total_size = total_size
+
+		# New content
+		if sequence_num not in self.content_ids:
+
+			# Add to the ledger
+			self.content_ids.append(sequence_num)
+			self.content_ids.sort()
+
+			# Get the location to add
+			index = self.content_ids.index(sequence_num)
+
+			# Add the content to the buffer
+			self.content_buffer.insert(index, body)
+
+		# AK the packet
+		self.ak(sequence_num)
+
+	# AKs a packet
+	def ak(self, num):
+
+		self.DNP.send(self.make_header(6,num,0), self.target_id, self.target_port, self.service_id)
+
+	# Asks for a file
+	def ask(self, file_name=None):
+
+		if file_name is not None:
+
+			self.file_name = file_name
+
+		elif file_name is None:
+
+			return None
+
+		self.DNP.send(self.make_header(10,0,0) + self.file_name, self.target_id, self.target_port, self.service_id)
+
+	# Sends file acceptance
+	def yes(self):
+
+		self.DNP.send(self.make_header(11,0,0) + 'yes', self.target_id, self.target_port, self.service_id)
+
+	# Sends file reject
+	def DNE(self):
+
+		self.DNP.send(self.header(11,0,0) + 'DNE', self.target_id, self.target_port, self.service_id)
+
+	# Deals with AK
+	def aked(self, num):
+
+		self.last_ak = time.time()
+
+		# Remove from the waiting and queue
+		if num in self.ak_waiting:
+
+			result = self.ak_waiting.remove(num)
+
+			if result == None:
+				self.ak_waiting = []
+
+			del self.all_queue[num]
+
+			if len(self.all_queue.keys()) == 0:
+
+				self.done = True
+
+	# Attempts to get the content
+	def get_content(self):
+
+		# Combine all data
+		combined_data = "".join(self.content_buffer)
+
+		# Packet is complete if size of data is equal to the total_size
+		if self.total_size and len(combined_data) == self.total_size:
+
+			# Set flag
+			self.done = True
+
+			# Stop counters
+			self.last_content = None
+
+			# Send back all data
+			return combined_data
+
+		# Not complete
+		else:
+
+			return None
+
+	# Saves the content
+	def save_content(self):
+
+		# Ignore if there is no content
+		if len(self.content_buffer) != 0:
+
+			# Try to get the content
+			content = self.get_content()
+
+			# Content got
+			if content is not None:
+
+				logging.warning("File downloaded: " + self.file_name)
+
+				# Need to go from utf-8 -> base64 -> file
+				content = content.decode('utf-8')
+				content = content.decode('base64')
+
+				# Save it
+				with open(os.path.join(content_folder, str(self.node_id) + '_' + self.file_name ), 'w') as the_file:
+
+					the_file.write(content)
 
 	# Does maintainence on the connection
 	def cleanup(self):
@@ -211,7 +482,42 @@ class RTP:
 		# Active
 		else:
 
-			pass
+			# Make sure enough time has passed
+			if time.time() - self.last_clean > self.timeout:
+
+				self.last_clean = time.time()
+
+				# Check for response ak
+				if self.requested:
+
+					self.ask(self.file_name)
+
+				# Stream is not complete
+				if not self.done:
+
+					# Check for content timeout
+					if self.last_content and self.last_content - time.time() > self.timeout:
+
+						# Check for broken
+						if self.last_content - time.time() > self.timeout * 10:
+
+							raise RuntimeError("Connection broken")
+
+						# Do nothing else
+
+					# Check for ak timeout
+					if self.last_ak and self.last_ak - time.time() > self.timeout:
+
+						# Check for broken
+						if self.last_ak - time.time() > self.timeout * 10:
+
+							raise RuntimeError("Connection broken")
+
+					# Resend content
+					self.window_send()
+
+					# Try to get all content
+					self.save_content()
 
 	# Sends a request, step 1 in handshake
 	def request(self):
@@ -228,7 +534,8 @@ class RTP:
 
 		# Get the header for the packet
 		# This is also the only content
-		message = pack_string([1,0]) + str(self.window)
+		#message = pack_string([1,0,0]) + str(self.window)
+		message = self.make_header(1,0,0) + str(self.window)
 
 		# Send this message
 		self.DNP.send(message, self.target_id, self.listen_port, self.service_id)
@@ -248,7 +555,8 @@ class RTP:
 
 		# Get the header for the packet
 		# This is also the only content
-		message = pack_string([2,0])
+		#message = pack_string([2,0,0])
+		message = self.make_header(2,0,0)
 
 		# Send this message
 		self.DNP.send(message, self.target_id, self.target_port, self.service_id)
@@ -279,7 +587,8 @@ class RTP:
 
 		# Get the header for the packet
 		# This is also the only content
-		message = pack_string([3,0])
+		#message = pack_string([3,0,0])
+		message = self.make_header(3,0,0)
 
 		# Send this message
 		self.DNP.send(message, self.target_id, self.target_port, self.service_id)
@@ -287,10 +596,71 @@ class RTP:
 		# Add to the connected list
 		#self.connected_to.append((self.target_id, self.target_port))
 
+	# Resets connection trackers
+	# Use after complete transfer
+	def reset_trackers(self):
+
+		# The time the transfer was started
+		self.start_time = time.time()
+
+		# The packet ID counter
+		self.packet_counter = 1
+
+		# The total queue of packets
+		# Sequence number : content
+		self.all_queue = {}
+
+		# The packet IDs waiting AK
+		self.ak_waiting = []
+
+		# The last time content was got
+		self.last_content = None
+
+		# The last time AK was got
+		self.last_ak = None
+
+		# Expected content size
+		self.content_size = None
+
+		# Connection is completed
+		self.done = False
+
+		# Request was made
+		self.requested = False
+
+		# File name asked for
+		self.file_name = None
+
+		# The expected content size
+		self.total_size = None
+
+		# Content buffer
+		self.content_buffer = []
+
+		# Sequence nums in the buffer
+		self.content_ids = []
+
+	# Makes the header
+	def make_header(self, pkt_type, sequence_num, total_size):
+
+		return pack_string([pkt_type, sequence_num]) + str(total_size) + "|"
+
+	# Gets the header, body
+	def separate(self, packet):
+
+		# Get the pkt type and sequence num
+		(pkt_type, sequence_num) = [int(x) for x in unpack_string(packet[:8])]
+
+		# Get the total_size
+		(total_size, body) = packet[8:].split("|", 1)
+		total_size = int(total_size)
+
+		return pkt_type, sequence_num, total_size, body
+
 	# The size of the header generated by this layer
 	# Expected size
-	# type	| sequence number
-	# 4	| 4
+	# type	| sequence number	
+	# 4	| 4			
 	# Total: 8
 	def header_size(self):
 

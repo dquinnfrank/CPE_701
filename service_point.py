@@ -48,12 +48,24 @@ class ServicePoint:
 		# If the target is requesting a connection
 		if int(dest_port) == self.service_id:
 
-			self.accept_connection(source_id, source_port, packet)
+			try:
+				self.accept_connection(source_id, source_port, packet)
+
+			# Max connections reached
+			except RuntimeError:
+
+				pass
 
 		else:
 
 			# Use the connection to unpack
 			self.connections[int(dest_port)].serve(packet)
+
+	# Requesting a file
+	def file_request(self, file_name):
+
+		# HACK: requesters only have 1 connection
+		self.connections[self.connections.keys()[0]].ask(file_name)
 
 	# Cleanup for all of the connections
 	def cleanup(self):

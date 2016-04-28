@@ -9,6 +9,9 @@ import struct
 # The size of !L fields packed by struct
 field_size = struct.calcsize("!L")
 
+# The folder were all content is stored
+content_folder = "content"
+
 # Enforces file path
 def enforce_path(path):
     try:

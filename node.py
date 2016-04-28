@@ -182,10 +182,15 @@ class Node:
 								server.serve(result)
 
 							# Blissfully ignore problems
-							except Exception, e:
+							#except Exception, e:
 
-								logging.error("Unexpected error:" + str(sys.exc_info()[0]))
-								print e
+								#logging.error("Unexpected error:" + str(sys.exc_info()[0]))
+								#print e
+
+							# Don't ignore
+							except:
+
+								raise
 
 			# Send all messages waiting
 			if len(self.send_list) > 0:
@@ -362,6 +367,26 @@ class Node:
 					#print "Connection id: " + str(conn_id)
 					print "Connection id: " + str(service_id)
 
+		# Asks for a fire
+		elif command == "download":
+
+			if not contents or len(contents.split()) < 2:
+
+				print "Need connectionID, file name"
+
+			else:
+
+				(connection_id, file_name) = contents.split()
+				connection_id = int(connection_id)
+
+				if connection_id not in self.services.keys():
+
+					print "No connection with that id"
+
+				else:
+
+					self.services[connection_id].file_request(file_name)
+
 		# Show the ids of active services
 		elif command == "services":
 
@@ -406,9 +431,10 @@ class Node:
 		print "'menu' to show this menu again"
 		print "'message' [node id to send to] [what to send] to send a message to another node"
 		print "'routing' to show the current routing table"
-		print "'startService' [max_connections] to start a download service"
-		print "'connectTo' [target id] [target service] [window] connect to target node with window size"
 		print "'services' to show active service points"
 		print "'connections' [service id] show open connections on service"
+		print "'startService' [max_connections] to start a download service"
+		print "'connectTo' [target id] [target service] [window] connect to target node at service"
+		print "'download' [connection id] [file name] gets the file though the connection"
 		print "-"*75
 		print ""
