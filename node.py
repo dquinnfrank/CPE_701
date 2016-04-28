@@ -9,6 +9,7 @@ import logging
 import time
 import random
 from itertools import ifilterfalse
+import argparse
 
 from general_utility import *
 import UDP_socket
@@ -203,15 +204,15 @@ class Node:
 								server.serve(result)
 
 							# Blissfully ignore problems
-							#except Exception, e:
+							except Exception, e:
 
-								#logging.error("Unexpected error:" + str(sys.exc_info()[0]))
+								logging.error("Unexpected error:" + str(sys.exc_info()[0]))
 								#print e
 
 							# Don't ignore
-							except:
+							#except:
 
-								raise
+								#raise
 
 			# Send all messages waiting
 			if len(self.send_list) > 0:
@@ -441,6 +442,7 @@ class Node:
 				self.service_points.append(service_id)
 
 				print "Service created: ", service_id
+				#logging.info("Service created: " + str(service_id))
 
 		# Connect to another node
 		elif command == "connectTo":
@@ -580,4 +582,27 @@ class Node:
 		print ""
 
 # If this is run as main, get options and start the node
+if __name__ == "__main__":
 
+	parser = argparse.ArgumentParser(description="Runs a node for the CPE 701 semester project")
+
+	parser.add_argument("node_id", type=int, help="The ID number of the node to run")
+
+	parser.add_argument("topology_file", help="The name of the network topology file. Send path and file name.")
+
+	parser.add_argument("-l", "--loss" , dest="loss_chance", type=int, default=5, help="Sets the initial loss parameter in the garbler")
+
+	parser.add_argument("-c", "--corruption", dest="corruption_chance", type=int, default=5, help="Sets the initial corruption parameter in the garbler")
+
+	parser.add_argument("-f", "--loggerFile", dest="log_file", default=None, help="The name, including path, to save the log file to. Prevents many messages from printing to the screen")
+
+	parser.add_argument("-v", "--loggerLevel", dest="log_level", default="WARNING", help="The level the logger operates on. ERROR, WARNING, INFO, DEBUG")
+
+	# Get the arguments and unpack them
+	args = parser.parse_args()
+
+	# Create the node
+	the_node = Node(args.node_id, args.topology_file, loss_chance = args.loss_chance, corruption_chance = args.corruption_chance, logger_level=args.log_file, logger_file_handle=args.log_file )
+
+	# Run the node
+	the_node.run()
