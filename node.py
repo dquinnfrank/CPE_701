@@ -8,6 +8,7 @@ import os
 import logging
 import time
 import random
+from itertools import ifilterfalse
 
 from general_utility import *
 import UDP_socket
@@ -24,7 +25,7 @@ class Node:
 
 	# Starts the node
 	# Needs the ID of this node and the configuration file for the network
-	def __init__(self, node_id, topology_file, loss_chance = 0, corruption_chance = 0, select_timeout=.1, cleanup_timeout=.5, logger_level="WARNING", logger_file_handle=None):
+	def __init__(self, node_id, topology_file, loss_chance = 0, corruption_chance = 0, select_timeout=.01, cleanup_timeout=.5, logger_level="WARNING", logger_file_handle=None):
 
 		# Set the logger file, if sent
 		if logger_file_handle is not None:
@@ -84,6 +85,24 @@ class Node:
 
 		# Set the routing layer in DNP
 		self.DNP.set_routing(self.services[2])
+
+		# Neighbor to link info
+		# ID : (ip,port,mtu)
+		self.link_info = {}
+		self.info_to_id = {}
+		for node_id in (int(connection1), int(connection2)):
+
+			(ip, port) = self.router.get_next_hop_sock(node_id, link_only=True)
+
+			mtu = self.router.get_link_mtu(node_id)
+
+			#self.link_info[node_id] = self.router.get_next_hop_info(node_id, link_only=True)
+			self.link_info[node_id] = (ip, port, mtu)
+			self.info_to_id[(ip, port)] = node_id
+
+		# Tracks downed links
+		# Contains ids
+		self.link_down = []
 
 		# Tracks the ids of dynamic connections
 		self.dyn_connections = []
@@ -158,6 +177,8 @@ class Node:
 					# Use DNP to open the packet
 					result = self.DNP.unpack(socket_input)
 
+					print "node ", result
+
 					logging.info("Got packet: " + str(result))
 
 					# If the return is not None, forward the packet to the specified service
@@ -213,9 +234,11 @@ class Node:
 						service.cleanup()
 
 					# Doesn't have cleanup, just ignore
-					except AttributeError:
+					#except AttributeError:
 
-						pass
+						#pass
+					except:
+						raise
 
 	# Creates the standard services at a node
 	#
@@ -252,6 +275,31 @@ class Node:
 		#print self.send_list
 		logging.debug("Sending messages:\n" + str(self.send_list))
 
+		# Remove messages heading for a down link or bigger than the allowable MTU
+		#for item in self.send_list:
+
+			# Get the message
+			#content = item[0]
+			#(dest_ip, dest_port) = item[1]
+
+			# Check the neighbor
+			#neighbor_id = self.info_to_id[(dest_ip, dest_port)]
+
+			#if 
+
+		def determine(item):
+
+			neighbor_id = self.info_to_id[item[1]]
+
+			(ip, port, mtu) = self.link_info[neighbor_id]
+			#print neighbor_id, " ", mtu, " ", len(item[0])
+
+			return not (neighbor_id not in self.link_down and len(item[0]) <= mtu)
+
+		self.send_list[:] = list(ifilterfalse(determine, self.send_list))
+
+		#print "To send: ", len(self.send_list)
+
 		# Send every message
 		self.main_socket.send_all_garbled(self.send_list)
 
@@ -274,6 +322,80 @@ class Node:
 		elif command == "menu":
 
 			self.show_menu()
+
+		# Set the values for the garbler
+		elif command == "setGarble":
+
+			if not contents or contents.split() < 2:
+
+				print "Need loss, corruption"
+
+			else:
+
+				(loss, corruption) = [int(x) for x in contents.split()]
+
+				# Fails for invalid values
+				try:
+
+					self.main_socket.set_garble_parameters(loss, corruption)
+
+				except ValueError:
+
+					print "Values not valid"
+
+		# Down a link
+		elif command == "downLink":
+
+			if not contents:
+
+				print "Need neighbor id"
+
+			else:
+
+				contents = int(contents)
+
+				# Add to the down list
+				if contents not in self.link_info.keys():
+
+					print "Not a neighbor"
+
+				elif contents in self.link_down:
+
+					print "Link is already down"
+
+				else:
+
+					logging.warning("Link downed: " + str(contents))
+
+					self.link_down.append(contents)
+
+		# Bring link back up
+		elif command == "upLink":
+
+			if not contents:
+
+				print "Need neighbor id"
+
+			else:
+
+				contents = int(contents)
+
+				# Remove from downlist
+				if contents not in self.link_info.keys():
+
+					print "Not a neighbor"
+
+				elif contents not in self.link_down:
+
+					print "Link not down"
+
+				else:
+
+					logging.warning("Link reactivated: " + str(contents))
+
+					self.link_down.remove(contents)
+					if self.link_down == None:
+						self.link_down = []
 
 		# Message another node
 		elif command == "message":
@@ -412,6 +534,20 @@ class Node:
 
 					print "No service id with that number"
 
+		# Show link status
+		elif command == "links":
+
+			for item in self.link_info.keys():
+
+				# Get info
+				ip, port, mtu = self.link_info[item]
+
+				# Get MTU
+				#mtu = self.
+
+				print "Link to: ", item, " IP: ", ip, " Port: ", port, " MTU: ", mtu, " Active: ", item not in self.link_down
+				#print info, " ", mtu , " ", item not in self.link_down
+
 		# Command not known
 		else:
 
@@ -429,12 +565,19 @@ class Node:
 		print "User commands: "
 		print "'quit' to quit"
 		print "'menu' to show this menu again"
+		print "'setGarble' [loss] [corruption] sets the garbler"
+		print "'downLink' [neighbor id] deactivate this link"
+		print "'upLink' [neighbor id] reactivate this link"
 		print "'message' [node id to send to] [what to send] to send a message to another node"
 		print "'routing' to show the current routing table"
 		print "'services' to show active service points"
+		print "'links' to show link status"
 		print "'connections' [service id] show open connections on service"
 		print "'startService' [max_connections] to start a download service"
 		print "'connectTo' [target id] [target service] [window] connect to target node at service"
 		print "'download' [connection id] [file name] gets the file though the connection"
 		print "-"*75
 		print ""
+
+# If this is run as main, get options and start the node
+

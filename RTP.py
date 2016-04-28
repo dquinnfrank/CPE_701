@@ -22,11 +22,12 @@ def get_window(packet):
 	#body = message[gen_header_size():]
 
 	# Get the pkt type and sequence num
-	(pkt_type, sequence_num) = [int(x) for x in unpack_string(message[:8])]
+	#(pkt_type, sequence_num) = [int(x) for x in unpack_string(message[:8])]
+	pkt_type, sequence_num, total_size, body = [int(x) for x in message.split('|')]
 
 	# Get the total_size
-	(total_size, body) = message[8:].split("|", 1)
-	total_size = int(total_size)
+	#(total_size, body) = message[8:].split("|", 1)
+	#total_size = int(total_size)
 
 	return int(body)
 
@@ -51,7 +52,7 @@ class RTP:
 
 	# timeout determines how long to wait for AKs of any kind
 	# Set target port if this is accepting a request
-	def __init__(self, node_id, service_id, DNP, target_id, connected_to, target_port=None, listen_port=10, timeout=.5, window=5, default_max = 1000):
+	def __init__(self, node_id, service_id, DNP, target_id, connected_to, target_port=None, listen_port=10, timeout=.5, window=5, default_max = 500):
 
 		self.node_id = node_id
 
@@ -80,7 +81,7 @@ class RTP:
 		self.window = window
 
 		# The is how big to make packets by default in bytes
-		self.default_max = 1000
+		self.default_max = default_max
 
 		# If the connection is active
 		self.connected = False
@@ -124,7 +125,7 @@ class RTP:
 	# Opens new packets
 	def serve(self, packet):
 
-		#print packet
+		print packet
 
 		# Get the readable form of the packet
 		(dest_port, source_id, source_port, message) = packet
@@ -231,6 +232,7 @@ class RTP:
 
 				else:
 
+					self.window_send()
 					self.yes()
 
 		# File response
@@ -256,7 +258,10 @@ class RTP:
 			logging.error("Packet type not known: " + str(pkt_type))
 
 	# Sends a message reliably
-	def send(self, message, chunk_size=1000):
+	def send(self, message, chunk_size=None):
+
+		if chunk_size is None:
+			chunk_size = self.default_max
 
 		if len(self.all_queue.keys()) != 0:
 
@@ -294,6 +299,8 @@ class RTP:
 	# Sends the messages currently in the window
 	def window_send(self):
 
+		print " first ", sorted(self.all_queue.keys())[:self.window]
+
 		# Ignore if there is nothing to send
 		if len(self.all_queue.keys()) != 0:
 
@@ -304,24 +311,36 @@ class RTP:
 			for candidate in send_candidates:
 
 				# Check for freshness
-				if candidate not in self.ak_waiting:
+				#if candidate not in self.ak_waiting:
+				if True:
 
 					# It is now waiting on ak
-					self.ak_waiting.append(candidate)
+					if candidate not in self.ak_waiting:
+						self.ak_waiting.append(candidate)
+
+					#print candidate
 
 					# Send the content of this message
 					self.send_single(candidate)
 
 	# Sends one message from the queue
 	def send_single(self, send_num):
+		print "Sending: ", send_num
 
 		# Get the message out of the queue
 		message = self.all_queue[send_num]
 
 		#print message
 
+		#print len(message)
+
 		# Send it
-		self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+		try:
+			self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+		except KeyError:
+			print "s no"
+			pass
+		print 'k'
 
 	# Buffers content
 	def unpack_content(self, packet):
@@ -354,7 +373,25 @@ class RTP:
 	# AKs a packet
 	def ak(self, num):
 
-		self.DNP.send(self.make_header(6,num,0), self.target_id, self.target_port, self.service_id)
+		if num not in self.send_aks:
+			self.send_aks.append(num)
+
+		#self.DNP.send(self.make_header(6,num,0), self.target_id, self.target_port, self.service_id)
+
+	# Sends all aks
+	def window_ak(self):
+
+		#print self.send_aks
+
+		for item in self.send_aks:
+
+			try:
+				self.DNP.send(self.make_header(6,item,0), self.target_id, self.target_port, self.service_id)
+			except KeyError:
+				print "no"
+				pass
+
+			print item
 
 	# Asks for a file
 	def ask(self, file_name=None):
@@ -366,18 +403,25 @@ class RTP:
 		elif file_name is None:
 
 			return None
-
-		self.DNP.send(self.make_header(10,0,0) + self.file_name, self.target_id, self.target_port, self.service_id)
+		try:
+			self.DNP.send(self.make_header(10,0,0) + self.file_name, self.target_id, self.target_port, self.service_id)
+		except KeyError:
+			print "no"
+			pass
 
 	# Sends file acceptance
 	def yes(self):
-
-		self.DNP.send(self.make_header(11,0,0) + 'yes', self.target_id, self.target_port, self.service_id)
+		try:
+			self.DNP.send(self.make_header(11,0,0) + 'yes', self.target_id, self.target_port, self.service_id)
+		except KeyError:
+			pass
 
 	# Sends file reject
 	def DNE(self):
-
-		self.DNP.send(self.header(11,0,0) + 'DNE', self.target_id, self.target_port, self.service_id)
+		try:
+			self.DNP.send(self.make_header(11,0,0) + 'DNE', self.target_id, self.target_port, self.service_id)
+		except KeyError:
+			pass
 
 	# Deals with AK
 	def aked(self, num):
@@ -385,17 +429,18 @@ class RTP:
 		self.last_ak = time.time()
 
 		# Remove from the waiting and queue
-		if num in self.ak_waiting:
+		#if num in self.ak_waiting:
+		if num in self.all_queue.keys():
 
-			result = self.ak_waiting.remove(num)
+			#self.ak_waiting.remove(num)
 
-			if result == None:
-				self.ak_waiting = []
+			#if result == None:
+			#	self.ak_waiting = []
 
 			del self.all_queue[num]
 
 			if len(self.all_queue.keys()) == 0:
-
+				#logging.warning("Download complete")
 				self.done = True
 
 	# Attempts to get the content
@@ -404,10 +449,13 @@ class RTP:
 		# Combine all data
 		combined_data = "".join(self.content_buffer)
 
+		#print "buffer: ", len(combined_data), " ", self.total_size
+
 		# Packet is complete if size of data is equal to the total_size
 		if self.total_size and len(combined_data) == self.total_size:
 
 			# Set flag
+			#print "Content got"
 			self.done = True
 
 			# Stop counters
@@ -424,6 +472,8 @@ class RTP:
 	# Saves the content
 	def save_content(self):
 
+		#print "len content buffer", len(self.content_buffer)
+
 		# Ignore if there is no content
 		if len(self.content_buffer) != 0:
 
@@ -433,11 +483,17 @@ class RTP:
 			# Content got
 			if content is not None:
 
-				logging.warning("File downloaded: " + self.file_name)
+				# Get the total time
+				total_time = time.time() - self.start_time
 
 				# Need to go from utf-8 -> base64 -> file
 				content = content.decode('utf-8')
 				content = content.decode('base64')
+
+				# Get the size of the content
+				content_size = len(content)
+
+				logging.warning("File downloaded: " + self.file_name + " time taken: " + str(total_time) + " bandwidth (bytes/second): " + str(content_size / total_time))
 
 				# Save it
 				with open(os.path.join(content_folder, str(self.node_id) + '_' + self.file_name ), 'w') as the_file:
@@ -482,6 +538,8 @@ class RTP:
 		# Active
 		else:
 
+			#print len(self.all_queue)#, " ", len(self.send_aks)
+
 			# Make sure enough time has passed
 			if time.time() - self.last_clean > self.timeout:
 
@@ -495,26 +553,37 @@ class RTP:
 				# Stream is not complete
 				if not self.done:
 
+					print "not done"
+
 					# Check for content timeout
-					if self.last_content and self.last_content - time.time() > self.timeout:
+					if self.last_content and time.time() - self.last_content > self.timeout:
+
+						print "content time out"
 
 						# Check for broken
-						if self.last_content - time.time() > self.timeout * 10:
+						if time.time() - self.last_content > self.timeout * 10:
 
 							raise RuntimeError("Connection broken")
 
-						# Do nothing else
+						#else:
+
+							#self.
 
 					# Check for ak timeout
-					if self.last_ak and self.last_ak - time.time() > self.timeout:
+					if self.last_ak and time.time() - self.last_ak > self.timeout:
+
+						print "ak time out"
 
 						# Check for broken
-						if self.last_ak - time.time() > self.timeout * 10:
+						if time.time() - self.last_ak > self.timeout * 10:
 
 							raise RuntimeError("Connection broken")
 
 					# Resend content
 					self.window_send()
+
+					# Resend aks
+					self.window_ak()
 
 					# Try to get all content
 					self.save_content()
@@ -538,7 +607,10 @@ class RTP:
 		message = self.make_header(1,0,0) + str(self.window)
 
 		# Send this message
-		self.DNP.send(message, self.target_id, self.listen_port, self.service_id)
+		try:
+			self.DNP.send(message, self.target_id, self.listen_port, self.service_id)
+		except KeyError:
+			pass
 
 	# Accepts the request and replies with the AK, step 2 in handshake
 	def accept(self):
@@ -559,7 +631,10 @@ class RTP:
 		message = self.make_header(2,0,0)
 
 		# Send this message
-		self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+		try:
+			self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+		except KeyError:
+			pass
 
 		# Add to the connected list
 		#self.connected_to.append((self.target_id, self.target_port))
@@ -591,7 +666,10 @@ class RTP:
 		message = self.make_header(3,0,0)
 
 		# Send this message
-		self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+		try:
+			self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+		except KeyError:
+			pass
 
 		# Add to the connected list
 		#self.connected_to.append((self.target_id, self.target_port))
@@ -640,22 +718,33 @@ class RTP:
 		# Sequence nums in the buffer
 		self.content_ids = []
 
+		# The aks to send
+		self.send_aks = []
+
 	# Makes the header
 	def make_header(self, pkt_type, sequence_num, total_size):
 
-		return pack_string([pkt_type, sequence_num]) + str(total_size) + "|"
+		#return pack_string([pkt_type]) + str(sequence_num) + '|' + str(total_size) + "|"
+
+		return "|".join([str(x) for x in [pkt_type, sequence_num, total_size]]) + '|'
 
 	# Gets the header, body
 	def separate(self, packet):
 
 		# Get the pkt type and sequence num
-		(pkt_type, sequence_num) = [int(x) for x in unpack_string(packet[:8])]
+		#(pkt_type,) = [int(x) for x in unpack_string(packet[:8])]
 
 		# Get the total_size
-		(total_size, body) = packet[8:].split("|", 1)
+		#(total_size, body) = packet[8:].split("|", 1)
+		#total_size = int(total_size)
+
+		(pkt_type, sequence_num, total_size, body) = packet.split("|", 3)
+		pkt_type = int(pkt_type)
+		sequence_num = int(sequence_num)
 		total_size = int(total_size)
 
-		return pkt_type, sequence_num, total_size, body
+		#return pkt_type, sequence_num, total_size, body
+		return (pkt_type, sequence_num, total_size, body)
 
 	# The size of the header generated by this layer
 	# Expected size

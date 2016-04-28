@@ -49,3 +49,7 @@ class Message:
 		print message
 		print ""
 
+	# For completeness
+	def cleanup(self):
+		return None
+

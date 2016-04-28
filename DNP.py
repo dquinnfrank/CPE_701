@@ -155,7 +155,8 @@ class DNP:
 
 		# If pkt_id is not set, use the counter
 		if pkt_id is None:
-
+			if self.packet_counter > 125:
+				self.packet_counter = 0
 			packet_id = self.packet_counter
 
 		else:
