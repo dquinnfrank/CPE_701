@@ -107,6 +107,9 @@ class RTP:
 
 		self.last_clean = 0
 
+		# Make sure the folder exists
+		enforce_path(os.path.join(content_folder, str(self.node_id)))
+
 		# If target port is sent, advance stage and set port
 		if target_port:
 
@@ -207,7 +210,7 @@ class RTP:
 			# Try to open the file
 			try:
 
-				with open(os.path.join(content_folder, file_name), 'rb') as the_file:
+				with open(os.path.join(content_folder, str(self.node_id), file_name), 'rb') as the_file:
 
 					# Get all of the file contents
 					#self.file_contents = base64.b64encode(the_file.read())
@@ -391,7 +394,8 @@ class RTP:
 				#print "no"
 				pass
 
-			#print item
+		# Clear the list
+		self.send_aks = []
 
 	# Asks for a file
 	def ask(self, file_name=None):
@@ -496,7 +500,7 @@ class RTP:
 				logging.warning("File downloaded: " + self.file_name + " time taken: " + str(total_time) + " bandwidth (bytes/second): " + str(content_size / total_time))
 
 				# Save it
-				with open(os.path.join(content_folder, str(self.node_id) + '_' + self.file_name ), 'w') as the_file:
+				with open(os.path.join(content_folder, str(self.node_id), self.file_name ), 'w') as the_file:
 
 					the_file.write(content)
 

@@ -77,7 +77,7 @@ class UDP_socket:
 		# Loss, failure means no sending
 		if random.randint(1, 100) <= self.current_loss_threshold:
 
-			logging.info("Packet loss sending to: " + str(send_info))
+			logging.debug("Packet loss sending to: " + str(send_info))
 			logging.debug("Message contents: " + message)
 
 			return
@@ -85,7 +85,7 @@ class UDP_socket:
 		# Corruption, failure means that the message will be randomly altered
 		if random.randint(1, 100) <= self.current_corruption_threshold:
 
-			logging.info("Packet corruption sending to: " + str(send_info))
+			logging.debug("Packet corruption sending to: " + str(send_info))
 			logging.debug("Message contents: " + message)
 
 			message = ''.join(i if random.randint(0, 1) else random.choice(string.letters) for i in message)

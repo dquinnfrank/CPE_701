@@ -40,7 +40,6 @@ class Node:
 
 		else:
 
-			# Set the logger level
 			logging.basicConfig(level=logger_level)
 
 		logging.warning("Starting node: " + str(node_id))
@@ -180,7 +179,10 @@ class Node:
 
 					#print "node ", result
 
-					logging.info("Got packet: " + str(result))
+					# Ignore heartbeats
+					if result and result[2] != 2:
+						logging.info("Got packet: " + str(result[:-1]))
+						logging.debug("Contents: " + str(result[-1]))
 
 					# If the return is not None, forward the packet to the specified service
 					if result is not None:
@@ -453,43 +455,51 @@ class Node:
 
 			else:
 
-				(target_id, target_listen, window) = [int(item) for item in contents.split()]
+				try:
 
-				max_connections = 1
+					(target_id, target_listen, window) = [int(item) for item in contents.split()]
 
-				rand_id = random.randint(20, 500)
-				while (rand_id in self.services.keys()):
+				except ValueError:
 
-					rand_id = random.randint(20, 500)
+					print "Incorrect input"
 
-				service_id = rand_id
-
-				service_temp = service_point.ServicePoint(self.node_id, service_id, self.DNP, self.services, max_connections=max_connections)
-
-				conn_id = service_temp.start_connection(target_id, listen_port=target_listen, window=window)
-
-				# Connection fails, error codes are < 0
-				if conn_id < 0:
-
-					service_temp = None
-
-					if conn_id == -1:
-
-						print "Connection failed, destination is not reachable"
-
-					else:
-
-						print "Connection failed"
-
-				# Service complete
 				else:
 
-					self.services[service_id] = service_temp
+					max_connections = 1
 
-					self.service_points.append(service_id)
+					rand_id = random.randint(20, 500)
+					while (rand_id in self.services.keys()):
 
-					#print "Connection id: " + str(conn_id)
-					print "Connection id: " + str(service_id)
+						rand_id = random.randint(20, 500)
+
+					service_id = rand_id
+
+					service_temp = service_point.ServicePoint(self.node_id, service_id, self.DNP, self.services, max_connections=max_connections)
+
+					conn_id = service_temp.start_connection(target_id, listen_port=target_listen, window=window)
+
+					# Connection fails, error codes are < 0
+					if conn_id < 0:
+
+						service_temp = None
+
+						if conn_id == -1:
+
+							print "Connection failed, destination is not reachable"
+
+						else:
+
+							print "Connection failed"
+
+					# Service complete
+					else:
+
+						self.services[service_id] = service_temp
+
+						self.service_points.append(service_id)
+
+						#print "Connection id: " + str(conn_id)
+						print "Connection id: " + str(service_id)
 
 		# Asks for a fire
 		elif command == "download":
@@ -602,7 +612,7 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 
 	# Create the node
-	the_node = Node(args.node_id, args.topology_file, loss_chance = args.loss_chance, corruption_chance = args.corruption_chance, logger_level=args.log_file, logger_file_handle=args.log_file )
+	the_node = Node(args.node_id, args.topology_file, loss_chance = args.loss_chance, corruption_chance = args.corruption_chance, logger_level=args.log_level, logger_file_handle=args.log_file )
 
 	# Run the node
 	the_node.run()

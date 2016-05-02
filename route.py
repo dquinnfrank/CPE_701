@@ -413,7 +413,7 @@ class Route:
 		# Set the useable routing table to be the updated routing table
 		self.node_id_to_next_hop = copy.copy(self.unstable_route)
 
-		logging.info("Routing table updated: " + self.routing_table_string(" "))
+		logging.debug("Routing table updated: " + self.routing_table_string(" "))
 
 		# Reset the unstable routing table
 		#self.unstable_route = copy.copy(self.link_info)
