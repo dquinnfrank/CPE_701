@@ -319,9 +319,6 @@ class RTP:
 	# Buffers content
 	def unpack_content(self, packet):
 
-		# AK the packet
-		self.ak(sequence_num)
-
 		if not self.done:
 			self.last_content = time.time()
 
@@ -344,6 +341,9 @@ class RTP:
 
 				# Add the content to the buffer
 				self.content_buffer.insert(index, body)
+
+		# AK the packet
+		self.ak(sequence_num)
 
 	# AKs a packet
 	def ak(self, num):
