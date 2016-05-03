@@ -177,7 +177,10 @@ class Node:
 					# Use DNP to open the packet
 					result = self.DNP.unpack(socket_input)
 
-					#print "node ", result
+					#if not result:
+					#	print "nothing"
+					#elif result[2] != 2 and result[2] != 3:
+					#	print "node ", result
 
 					# Ignore heartbeats
 					if result and result[2] != 2:
@@ -243,6 +246,9 @@ class Node:
 					except:
 						raise
 
+				# Do cleanup on DNP
+				self.DNP.cleanup()
+
 	# Creates the standard services at a node
 	#
 	# 1 : ping
@@ -292,10 +298,19 @@ class Node:
 
 		def determine(item):
 
-			neighbor_id = self.info_to_id[item[1]]
+			try:			
+				neighbor_id = self.info_to_id[item[1]]
+
+			except KeyError:
+				#print self.info_to_id
+				#print item
+				return False
 
 			(ip, port, mtu) = self.link_info[neighbor_id]
 			#print neighbor_id, " ", mtu, " ", len(item[0])
+
+			#if not (neighbor_id not in self.link_down and len(item[0]) <= mtu):
+				#print "Too big: ", item
 
 			return not (neighbor_id not in self.link_down and len(item[0]) <= mtu)
 

@@ -60,6 +60,24 @@ class DNP:
 
 			self.send_list.append((item, send_info))
 
+	# Removes stale fragments
+	def cleanup(self):
+
+		# Go through the ledger
+		for pkt_name in self.message_buffer.keys():
+
+			# Get the timestamp
+			time_stamp = self.message_buffer[pkt_name]["last_timestamp"]
+
+			# If it is too long ago, remove this entry
+			if time.time() - time_stamp > self.buffer_timeout:
+
+				#print "Dumped: ", pkt_name
+				#print len("".join(self.message_buffer[pkt_name]["data_buffer"]))
+				#print "Contents", self.message_buffer[pkt_name]
+				logging.debug("Dumped: " + str(pkt_name))
+
+				del self.message_buffer[pkt_name]
 	# Creates a best effort service packet
 	# Returns a list of strings with the packet header and content
 	# Each item in the list is a fragment of the packet, commonly there will only be one
@@ -89,6 +107,7 @@ class DNP:
 		# Fragmentation will continue as long as needed
 		message_remaining = message # Holds remaining message chunks
 		offset_counter = offset_start # Tracks the byte offset
+		first = True # First packet fragment to be sent
 		while len(message_remaining) > max_size:
 
 			# Take a chunk of the message off and make a packet out of it
@@ -96,8 +115,11 @@ class DNP:
 
 			# Pack and add to the message list, will fail if TTL expires
 			try:
-
+				#use_id = self.packet_counter
+				#print "chunk ", first, " ",
 				to_send = self.single_pack(message_chunk, destination_id, destination_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset = offset_counter, total_size = tot_size)
+				#first = False
+				#to_send = self.single_pack(message_chunk, destination_id, destination_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset = offset_counter, total_size = tot_size)
 
 			# TTL has expired, don't deal with it here for now
 			except RuntimeError:
@@ -120,8 +142,9 @@ class DNP:
 
 			# TTL catch
 			try:
-
+				#print "remains ", first, " ", 
 				to_send = self.single_pack(message_remaining, destination_id, destination_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset = offset_counter, total_size = tot_size)
+				#first=False
 
 			# TTL expired
 			except RuntimeError:
@@ -132,7 +155,8 @@ class DNP:
 				message_fragments.append(to_send)
 
 		# Incrment count
-		offset_counter += 1
+		#offset_counter += len(message_remaining)
+		self.packet_counter += 1
 
 		return message_fragments
 
@@ -162,7 +186,7 @@ class DNP:
 		else:
 
 			packet_id = pkt_id
-
+		#print packet_id
 		# Get the binary header for the DNP portion of the message
 		DNP_header = pack_string([int(destination_id), packet_id, offset, total_size, destination_port, send_to, source_port])
 
@@ -174,6 +198,7 @@ class DNP:
 
 		# Increment the overall packet counter to keep IDs unique, if requested
 		if increment:
+			#print self.packet_counter
 			self.packet_counter += 1
 
 		return whole_packet
@@ -196,7 +221,7 @@ class DNP:
 
 		# Just ignore corrupted packets
 		except RuntimeError:
-
+			#print "corrupt"
 			return None
 
 		# More readable form of the packet contents
@@ -212,7 +237,7 @@ class DNP:
 				# 
 			self.send(message, dest_id, dest_port, source_port, TTL = TTL, source_id=source_id, pkt_id=pkt_id, offset_start = offset, total_size = total_size)
 			#sending =
-
+			#print "Not for here"
 			return None
 
 		# The common case is that the packet is not fragmented, immediately return
@@ -231,7 +256,7 @@ class DNP:
 				return (dest_port, source_id, source_port, response)
 
 			else:
-
+				#print "buffered"
 				return None
 
 	# Unpacks a single DNP packet
@@ -297,7 +322,7 @@ class DNP:
 
 			del self.message_buffer[packet_key]
 
-		# Return the combined packet, will be None if not all fragements are present
+		# Return the combined packet, will be None if not all fragments are present
 		return fused
 
 	# Attempts to combine the given packet buffer
@@ -313,6 +338,9 @@ class DNP:
 
 			# Send back all data
 			return combined_data
+
+		#elif len(combined_data) > packet_buffer["total_size"]:
+			#print "BAD BAD BAD BAD BAD"
 
 		# Not complete
 		else:

@@ -52,7 +52,7 @@ class RTP:
 
 	# timeout determines how long to wait for AKs of any kind
 	# Set target port if this is accepting a request
-	def __init__(self, node_id, service_id, DNP, target_id, connected_to, target_port=None, listen_port=10, timeout=.5, window=5, default_max = 500):
+	def __init__(self, node_id, service_id, DNP, target_id, connected_to, target_port=None, listen_port=10, timeout=.5, window=5, default_max = 1000):
 
 		self.node_id = node_id
 
@@ -234,9 +234,8 @@ class RTP:
 					pass
 
 				else:
-
-					self.window_send()
 					self.yes()
+					self.window_send()
 
 		# File response
 		elif pkt_type == 11:
@@ -332,6 +331,9 @@ class RTP:
 
 		# Get the message out of the queue
 		message = self.all_queue[send_num]
+		#print "got: ", send_num
+		#if len(self.all_queue) == 1:
+			#print self.all_queue[send_num]
 
 		#print message
 
@@ -340,35 +342,41 @@ class RTP:
 		# Send it
 		try:
 			self.DNP.send(message, self.target_id, self.target_port, self.service_id)
+			#print self.DNP.send_list
 		except KeyError:
-			#print "s no"
+			#print "s no", send_num
 			pass
+
+		#except:
+		#	print "NOOOOOOOO"
 		#print 'k'
 
 	# Buffers content
 	def unpack_content(self, packet):
 
-		self.last_content = time.time()
+		if not self.done:
+			self.last_content = time.time()
 
-		(sequence_num, total_size, body) = packet
+			(sequence_num, total_size, body) = packet
+			#print sequence_num
 
-		# New stream, set the total size
-		if self.total_size is None:
+			# New stream, set the total size
+			if self.total_size is None:
 
-			self.total_size = total_size
+				self.total_size = total_size
 
-		# New content
-		if sequence_num not in self.content_ids:
+			# New content
+			if sequence_num not in self.content_ids:
 
-			# Add to the ledger
-			self.content_ids.append(sequence_num)
-			self.content_ids.sort()
+				# Add to the ledger
+				self.content_ids.append(sequence_num)
+				self.content_ids.sort()
 
-			# Get the location to add
-			index = self.content_ids.index(sequence_num)
+				# Get the location to add
+				index = self.content_ids.index(sequence_num)
 
-			# Add the content to the buffer
-			self.content_buffer.insert(index, body)
+				# Add the content to the buffer
+				self.content_buffer.insert(index, body)
 
 		# AK the packet
 		self.ak(sequence_num)
@@ -409,6 +417,7 @@ class RTP:
 			return None
 		try:
 			self.DNP.send(self.make_header(10,0,0) + self.file_name, self.target_id, self.target_port, self.service_id)
+			self.last_content = time.time()
 		except KeyError:
 			#print "no"
 			pass
@@ -417,6 +426,7 @@ class RTP:
 	def yes(self):
 		try:
 			self.DNP.send(self.make_header(11,0,0) + 'yes', self.target_id, self.target_port, self.service_id)
+			self.last_ak = time.time()
 		except KeyError:
 			pass
 
@@ -686,7 +696,7 @@ class RTP:
 		self.start_time = time.time()
 
 		# The packet ID counter
-		self.packet_counter = 1
+		self.packet_counter = 2
 
 		# The total queue of packets
 		# Sequence number : content
