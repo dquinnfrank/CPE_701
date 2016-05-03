@@ -91,7 +91,7 @@ class UDP_socket:
 			message = ''.join(i if random.randint(0, 1) else random.choice(string.letters) for i in message)
 
 		# Send the message
-		print send_info
+		#print send_info
 		self.sock.sendto(message, send_info)
 
 		logging.debug("Packet sent to: " + str(send_info))
