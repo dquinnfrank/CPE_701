@@ -122,7 +122,7 @@ class Node:
 
 		# Burn all queued packets
 		start = time.time()
-		burn_time = 1.0
+		burn_time = 10.0
 		while time.time() - start < burn_time:
 
 			input_from, ignore, ignore = select.select(self.inputs, [], [], .01)
