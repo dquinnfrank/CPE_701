@@ -3,7 +3,7 @@ CPE 701 Semester Project
 
 Quick Start:
 
-Use python node.py -h to find out what parameters the node needs to run. Once running, more info will be provided by a menu inside the application. Any content you want to send will need to be placed into the 'content' sub folder. This is to prevent the root folder from being overwhelmed by files.
+Use python node.py -h to find out what parameters the node needs to run. Once running, more info will be provided by a menu inside the application. Any content you want to send will need to be placed into the 'content' sub folder for the node that will be hosting it. Ex: 'content/1' is were content will need to be in order to be sent from node 1. This is to prevent the root folder from being overwhelmed by files.
 
 Longer Start:
 
