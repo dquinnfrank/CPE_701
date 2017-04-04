@@ -1,5 +1,4 @@
-# CPE_701
-Semester project for CPE_701
+# OSI Layer Simulation
  
 The purpose of this project is to rebuild most of the networking stack.
 Layers included are:
